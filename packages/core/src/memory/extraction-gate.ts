@@ -19,6 +19,10 @@ export type ExtractionSignal =
   | "irreversible" // death, betrayal, departure, revelation
   | "new_entity" // first mention of a known name in this window
   | "preference" // an explicit statement about the player
+  | "interrogative" // a question that carries or seeks durable information
+  | "acquisition" // possession gained, lost, traded or owed
+  | "discovery" // something found, seen or learned about the world
+  | "assertion" // a stated fact about the world or its people
   | "tool_call" // a validated mutation already fired this turn
   | "rule_delta" // a deterministic relationship rule fired
   | "turn_floor"; // N turns since the last extraction
@@ -48,7 +52,38 @@ const COMMISSIVE =
   /\b(promis(e|ed|es|ing)|swear|swore|sworn|vow(ed|s)?|oath|agree(d)?|refus(e|ed)|guarantee(d)?|pledg(e|ed))\b/i;
 
 const IRREVERSIBLE =
-  /\b(betray(ed|al|s)?|died|dies|dead|death|kill(ed|s)?|murder(ed)?|leav(e|ing)|left|depart(ed|ing)?|abandon(ed)?|confess(ed|ion)?|reveal(ed)?|admit(ted)?|forgiv(e|en)|marry|married|destroy(ed)?)\b/i;
+  /\b(betray(ed|al|s)?|died|dies|dead|death|kill(ed|s)?|murder(ed)?|leav(e|ing)|left|depart(ed|ing)?|abandon(ed)?|confess(ed|ion)?|reveal(ed)?|admit(ted)?|forgiv(e|en)|marry|married|destroy(ed)?|collapsed?|burn(ed|t|ing)?)\b/i;
+
+/**
+ * Acquisition, loss, discovery and observation — P1-T20.
+ *
+ * Found by suite 1: seven of twenty facts scored 0% recall, and every one was
+ * carried by a verb the gate did not know.
+ *
+ *   "I buy a coil of rope from Odell"       → possession gained
+ *   "I lose my signet ring in the river"    → possession lost
+ *   "I discover a crypt beneath the chapel" → world knowledge
+ *   "I see the eastern watchtower signal"   → world event witnessed
+ *   "I remark that Marcus is Elena's brother" → relationship stated
+ *
+ * The original signal set was built around promises and betrayals — the dramatic
+ * verbs. But most of what a player establishes in a world is quieter than that:
+ * they acquire things, notice things, and state relationships in passing. A gate
+ * tuned only for drama silently discards the ordinary facts a world is made of.
+ */
+const ACQUISITION =
+  /\b(buy|bought|purchase[ds]?|sold|sell[s]?|acquire[ds]?|obtain(ed)?|receive[ds]?|gave|given|lose|lost|losing|drop(ped)?|steal|stole|stolen|trade[ds]?|owe[ds]?|owns?)\b/i;
+
+const DISCOVERY =
+  /\b(discover(ed|s)?|find|finds|found|notice[ds]?|observe[ds]?|see|saw|seen|spot(ted)?|learn(ed|t)?|realise[ds]?|realize[ds]?|hidden|uncover(ed)?)\b/i;
+
+/**
+ * Statements of fact about the world or its people. Deliberately narrow: it
+ * requires a reporting verb followed by a clause, so "I tell Elena that X"
+ * fires while a bare "I tell her" does not.
+ */
+const ASSERTION =
+  /\b(tell|told|remark(ed)?|mention(ed)?|state[ds]?|report(ed)?|say|said|explain(ed)?|note[ds]?)\b[^.]*\b(that|about|is|was|are|were|has|have)\b/i;
 
 /**
  * Preference statements about the player.
@@ -74,6 +109,48 @@ const PREFERENCE = new RegExp(
   "i",
 );
 
+/**
+ * Questions that carry durable information — P1-T19.
+ *
+ * Discovered by measurement: the Ashford Inquiry stored 1 memory from 6 turns,
+ * every run, because a mystery's facts live inside what the player ASKS rather
+ * than what they assert. The gate fired on commissives, irreversibles and
+ * preferences, none of which match an interrogative.
+ *
+ * This is not merely an eval fix. In a persistent world a question is often the
+ * most information-dense thing a player says:
+ *
+ *   "Do you know who killed the king?"          → declares a line of suspicion
+ *   "Is the eastern gate still guarded?"         → reveals an objective
+ *   "Didn't you promise you'd never go in there?" → asserts a prior promise
+ *
+ * NOT every question qualifies. "What's your name?" and "Where am I?" seek
+ * information without carrying any, and firing on those would erode the 36% of
+ * turns the gate currently saves. Three narrower patterns are used instead.
+ */
+
+/** (a) Presupposing questions — the question asserts the fact it asks about. */
+const INTERROGATIVE_PRESUPPOSING =
+  /\b(did|didn'?t|weren'?t|wasn'?t|haven'?t|hasn'?t|aren'?t|isn'?t|won'?t|couldn'?t|shouldn'?t)\s+(you|he|she|they|we)\b|\byou (said|told|promised|swore|claimed|admitted)\b/i;
+
+/** (b) Reported questions — "I ask X about Y", "I asked X whether…". */
+const INTERROGATIVE_REPORTED =
+  /\bi\s+(ask|asked|question|questioned|press|pressed|enquire[sd]?|inquire[sd]?)\s+\w+/i;
+
+/**
+ * (c) Direct questions that probe a durable state.
+ *
+ * Requires BOTH halves. An earlier version matched any string ending in "?",
+ * which fired on "What is your name?" and "Where am I?" — questions that seek
+ * information without carrying any. Firing on those would have erased the 36%
+ * of turns the gate currently saves, trading one waste for another.
+ */
+const INTERROGATIVE_QUESTION_FORM =
+  /\?\s*$|^\s*(who|what|where|when|why|how|whether|which|is|are|was|were|do|does|did|can|could|will|would|have|has)\b/i;
+
+const DURABLE_SUBJECT =
+  /\b(kill|killed|die[ds]?|death|murder|guard(ed|ing)?|hidden|hiding|hid|promise[ds]?|betray|betrayed|steal|stole|stolen|took|taken|owns?|owned|know|knew|saw|seen|secret|lied?|lying|trust|suspect)\b/i;
+
 const DEFAULT_TURN_FLOOR = 12;
 
 export function shouldExtract(input: GateInput): GateResult {
@@ -83,6 +160,18 @@ export function shouldExtract(input: GateInput): GateResult {
   if (COMMISSIVE.test(text)) signals.push("commissive");
   if (IRREVERSIBLE.test(text)) signals.push("irreversible");
   if (PREFERENCE.test(text)) signals.push("preference");
+  if (ACQUISITION.test(text)) signals.push("acquisition");
+  if (DISCOVERY.test(text)) signals.push("discovery");
+  if (ASSERTION.test(text)) signals.push("assertion");
+  const directQuestion =
+    INTERROGATIVE_QUESTION_FORM.test(text) && DURABLE_SUBJECT.test(text);
+  if (
+    INTERROGATIVE_PRESUPPOSING.test(text) ||
+    INTERROGATIVE_REPORTED.test(text) ||
+    directQuestion
+  ) {
+    signals.push("interrogative");
+  }
   if (input.toolCallFired) signals.push("tool_call");
   if (input.ruleDeltaApplied) signals.push("rule_delta");
 
