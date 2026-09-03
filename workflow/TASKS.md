@@ -44,7 +44,7 @@
 | P1-T03 | Module-boundary lint rule | T01 | Importing `modules/x/repo` from `modules/y` fails CI | ☑ Verified firing: model-name rule + core-purity rule both reject a probe file |
 | P1-T04 | `packages/contracts` — core Zod schemas | T01 | Memory, character, world, message, AI request/response schemas | ☑ Branded ids, memory, ai, character, world |
 | P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ⊘ **Blocked: needs `GROQ_API_KEY`** |
-| P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☐ Next — not blocked |
+| P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☑ 36 tests. Parses its own prompt, so a dropped memory is detectable. Extraction output validated against the real `ExtractionResultSchema`. |
 | P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ⊘ **Blocked: needs `CF_ACCOUNT_ID` + `CF_API_TOKEN`** |
 | P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☐ Can start against the mock provider |
 | P1-T09 | Ranking formula in `packages/core/memory` | T08 | Pure functions; unit tested; weights in a named, versioned module | ☑ Scoring, RRF, MMR, budget packing. Weights versioned in `weights.ts` |
@@ -100,7 +100,12 @@
 | P3-T10 | Admission control skeleton | T09 | Atomic reservation before any provider call | ☐ |
 | P3-T11 | Eval suite 7 — provider chaos | T05 | All six chaos scenarios pass | ☐ |
 | P3-T12 | Streaming interface | T04 | `AsyncGenerator` streaming works and falls back to non-streaming | ☐ |
-| P3-T13 | Lint rule: no model name outside config | T01 | A hard-coded model id fails CI | ☐ |
+| P3-T13 | Lint rule: no model name outside config | T01 | A hard-coded model id fails CI | ☑ Verified firing (done early, with P1-T03) |
+| P3-T14 | **Quota ledger**: RPM/TPM/RPD/**TPD** per model, in KV | T06 | Pre-emptive skip of an exhausted model without spending a round trip. TPD is the binding constraint, not RPD. | ☐ |
+| P3-T15 | **Load distribution** across equivalent-tier candidates (ADR-017) | T14 | Picks the model with the most *fractional* remaining headroom. Pool exhausts evenly rather than one model at a time. | ☐ |
+| P3-T16 | Tier-equivalence band for distribution (ADR-017) | T15 | Two models are load-balanced peers only within a benchmarked quality tolerance | ☐ |
+| P3-T17 | **Capacity priority + graduated degradation** (ADR-018) | T14 | The four headroom thresholds enforced; free tier degrades before any refusal; paid tiers unaffected until exhaustion | ☐ |
+| P3-T18 | Pool guard wired into candidate filtering | T03 | `checkPoolEligibility` gates every routing decision; a Private world never reaches a `standard`-only provider | ☐ (guard + tests already built) |
 
 **Gate:** every chaos scenario passes · no model name in code · every attempt logged.
 

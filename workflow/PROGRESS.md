@@ -10,17 +10,17 @@
 | | |
 |---|---|
 | **Phase** | 1 — AI Lab & Evaluation Harness |
-| **Phase status** | Foundation built; gate not yet assessable (needs a real provider) |
-| **Next task** | **P1-T06** — mock provider (not blocked) |
+| **Phase status** | Mock provider done; real-provider tasks blocked on keys |
+| **Next task** | **P1-T12** (test worlds) then **P1-T08** (memory loop) — both runnable against the mock |
 | **Blocked on** | **API keys: `GROQ_API_KEY`, `CF_ACCOUNT_ID` + `CF_API_TOKEN`** → blocks P1-T02, T05, T07 |
-| **Code** | 53 tests passing in 26 ms · typecheck green · lint green |
+| **Code** | 108 tests passing in ~60 ms · typecheck green · lint green |
 | **Money spent** | ₹0 |
 
 ### The next three things
 
-1. **P1-T06** — mock provider. Unblocked, and it unblocks the whole memory loop without spending a single token.
-2. **API keys** — Groq (primary, privacy-clean) and Cloudflare (embeddings). Everything touching a real model waits on these.
-3. **P0-T13** — read the spec set end to end for contradictions. Deferred, not forgotten.
+1. **P1-T12** — the four canonical test worlds as fixtures. Needs no keys.
+2. **P1-T08** — the memory loop against the mock provider. This is the first end-to-end proof that retrieval → prompt → generate → extract → store works.
+3. **API keys** — Groq and Cloudflare. Everything touching a real model waits on these, including the Phase 1 gate itself.
 
 ---
 

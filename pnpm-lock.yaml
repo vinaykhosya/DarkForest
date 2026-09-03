@@ -40,6 +40,18 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/ai:
+    dependencies:
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@darkforest/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/contracts:
     dependencies:
       zod:

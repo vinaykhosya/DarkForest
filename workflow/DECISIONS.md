@@ -326,6 +326,55 @@ deterministic signals  (free, ~0 ms)
 
 ---
 
+### ADR-017 — Distribute load across the pool; do not drain providers sequentially
+**2026-09-03 · Accepted · Extends [08](../docs/08-ai-router.md) § 6**
+
+**Context.** The router as specified walks an *ordered* fallback chain: try model 1, on failure try model 2. That is correct for **failure** handling and wrong for **capacity** handling. With ordered draining, model 1's 200K tokens/day is exhausted by mid-afternoon while three equivalent models sit untouched, and every user in that window sees degraded routing for no reason.
+
+Our binding constraint is tokens/day, not requests/day ([01](../docs/01-principles-and-constraints.md) § Part C), which makes this materially worse than it would be under an RPM-bound regime.
+
+**Decision.** Two distinct mechanisms, deliberately not conflated:
+
+| Mechanism | Trigger | Behaviour |
+|---|---|---|
+| **Distribution** | Normal operation | Among *healthy, eligible, equivalent-tier* candidates, pick the one with the **most remaining headroom** as a fraction of its own daily budget |
+| **Fallback** | A call actually failed | Walk the ordered chain, skipping the failed model ([08](../docs/08-ai-router.md) § 6 unchanged) |
+
+Headroom is fractional, not absolute, so a model with a 500K budget and one with 200K are compared fairly.
+
+**Rationale.** Spreads consumption evenly, so the whole pool exhausts at roughly the same time rather than one model at a time. Also smooths quality: users are not sorted into "got the good model" and "got the fallback" by time of day.
+
+**Trade-off.** Response quality becomes slightly less predictable turn to turn, since two equivalent-tier models are not identical in character. Mitigated by requiring a benchmarked quality score within a tolerance band before two models are treated as equivalent — a model 1.5 points below its tier-mate is not a peer and is not load-balanced against it.
+
+**Revisit.** If quality variance inside a tier becomes a user-visible complaint, narrow the equivalence band.
+
+---
+
+### ADR-018 — Capacity priority is an entitlement, and it degrades rather than refuses
+**2026-09-03 · Accepted**
+
+**Context.** When the pool nears exhaustion, someone has to be served worse. Deciding that implicitly — i.e. whoever arrives first — means a free user's idle browsing can consume the capacity a paying subscriber needs an hour later.
+
+**Decision.** A `capacity.priority` integer entitlement (free 10, creator 50, pro 100). On contention, in this order:
+
+```
+pool headroom < 25%   free tier drops to the compact context profile (ADR-012)
+pool headroom < 15%   free tier capped at 1 responder per turn
+pool headroom < 10%   free tier routed to `fast` tier only
+pool headroom <  5%   free tier queued; paid tiers served normally
+pool exhausted        everyone queued — degradation ladder Level 4
+```
+
+**Rationale.** Paying users should feel the squeeze last, but a free user is a future paying user and must never be shown a wall while capacity remains. Every step above degrades before refusing ([16](../docs/16-observability-and-ops.md) § Degradation Ladder).
+
+**Trade-off.** Free-tier quality varies with total platform load, which is invisible to the user and therefore confusing when they compare sessions. Accepted: the alternative is either refusing free users earlier or letting them displace subscribers.
+
+**Note.** This is *capacity* priority, distinct from the `feature.priority_queue` entitlement in [14](../docs/14-billing-and-entitlements.md) (queue ordering). Both exist; they are not the same lever.
+
+**Revisit.** After Phase 12 measures how often headroom actually drops below 25%. If it never does, this is over-engineering and the thresholds should widen.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
