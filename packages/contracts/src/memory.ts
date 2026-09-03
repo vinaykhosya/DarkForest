@@ -78,10 +78,28 @@ export type RetrievedMemory = z.infer<typeof RetrievedMemorySchema>;
 // supports `response_format`, so on those endpoints this is enforced via the
 // tool-calling fallback (docs/08 § 9) — not by trusting the prose.
 
+/**
+ * A character NAME as the model writes it. Resolved to a CharacterId by the
+ * extraction service against the world's roster.
+ *
+ * WHY NAMES AND NOT IDS — learned the hard way, 2026-09-04.
+ * The first version required `character:<uuid>` refs. Models are poor at
+ * copying 36-character random strings, and because Zod validates the whole
+ * object, ONE malformed ref rejected the entire extraction batch. Measured
+ * effect: 3 of 4 test worlds extracted zero memories, reported only as
+ * "unparseable".
+ *
+ * Asking a model to echo an identifier is a bad contract. The model emits what
+ * it can say reliably — a name — and the backend does the lookup, which it can
+ * do perfectly.
+ */
+const CharacterNameSchema = z.string().trim().min(1).max(80);
+
 export const ExtractedMemorySchema = z.object({
   kind: MemoryKindSchema,
   content: MemoryContentSchema,
-  subjects: z.array(EntityRefSchema).max(8).default([]),
+  /** Character names. Unknown names are dropped during resolution, not rejected. */
+  subjects: z.array(CharacterNameSchema).max(8).default([]),
   importance: z.number().min(0).max(1),
   confidence: z.number().min(0).max(1).default(0.9),
   worldDay: z.number().int().min(0).nullable().default(null),
@@ -89,14 +107,15 @@ export const ExtractedMemorySchema = z.object({
    * Knowledge isolation at birth (docs/06 § 3). Empty means world-visible.
    * Getting this wrong here is how secrets leak weeks later.
    */
-  knownBy: z.array(CharacterIdSchema).default([]),
+  knownBy: z.array(CharacterNameSchema).default([]),
   visibility: MemoryVisibilitySchema.default("world"),
 });
 export type ExtractedMemory = z.infer<typeof ExtractedMemorySchema>;
 
 export const RelationshipDeltaSchema = z.object({
-  from: EntityRefSchema,
-  to: EntityRefSchema,
+  /** Names, resolved by the backend. See CharacterNameSchema above. */
+  from: z.string().trim().min(1).max(80),
+  to: z.string().trim().min(1).max(80),
   deltas: z
     .object({
       trust: z.number().int().min(-15).max(15).optional(),

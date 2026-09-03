@@ -41,14 +41,26 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
     `Do not invent, embellish, or infer beyond what the text states.`,
     ``,
     `WHAT EARNS A MEMORY`,
-    `Only record something if a reader would find it strange for a character to have`,
-    `forgotten it two weeks later. Most turns contain nothing worth recording — an`,
-    `empty result is the correct and common answer.`,
+    `Record anything a reader would find it strange for a character to have`,
+    `forgotten two weeks later.`,
     ``,
-    `Prefer: promises, oaths, betrayals, deaths, departures, revealed secrets,`,
-    `relationship shifts, durable preferences, acquired or lost possessions.`,
-    `Reject: small talk, movement, description, restatements of known facts,`,
-    `anything already listed under ALREADY KNOWN.`,
+    `RECORD: promises and oaths · betrayals · deaths · departures and arrivals ·`,
+    `revealed secrets · relationship changes · stated likes, dislikes and fears ·`,
+    `possessions gained or lost · plans announced · facts about people or places.`,
+    ``,
+    `Worked examples — these all earn a memory:`,
+    `  "I tell Elena I own Ravenblade, taken from the dungeon"`,
+    `     -> "The user owns Ravenblade, taken from the dungeon beneath the keep."`,
+    `  "I've been offered a job in Delhi"`,
+    `     -> "The user has been offered a job in Delhi."`,
+    `  "I've always hated coriander"`,
+    `     -> "The user dislikes coriander."`,
+    `  "I found the study door locked from the inside"`,
+    `     -> "The user found the study door locked from the inside."`,
+    ``,
+    `SKIP: pure movement with no new information, greetings, and anything already`,
+    `listed under ALREADY KNOWN. If a turn genuinely contains nothing new, return`,
+    `an empty array — but do not skip a fact merely because it seems small.`,
     ``,
     `HOW TO WRITE ONE`,
     `1. One fact per memory. Split anything containing "and".`,
@@ -66,8 +78,8 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
     `persona    a fact about the player`,
     ``,
     `KNOWLEDGE`,
-    `Set knownBy to the characters who witnessed or were told the fact. Leave it`,
-    `empty only when the whole world would know. Getting this wrong causes a`,
+    `Set knownBy to the NAMES of characters who witnessed or were told the fact.`,
+    `Leave it empty when the whole world would know. Getting this wrong causes a`,
     `character to reveal a secret they were never told, so err toward fewer.`,
     ``,
     `IMPORTANCE`,
@@ -78,8 +90,9 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
     ``,
     `Return at most ${String(maxMemories)} memories. Return an empty array if nothing qualifies.`,
     ``,
-    `KNOWN ENTITIES (use these refs exactly; do not invent others)`,
-    ...input.knownEntities.map((e) => `  ${e.ref} = ${e.name}`),
+    `CHARACTER NAMES in this world — use these exact names in`,
+    `\`subjects\` and \`knownBy\`. Do not invent others, and do not use ids.`,
+    ...input.knownEntities.map((e) => `  ${e.name}`),
     ``,
     `ALREADY KNOWN (do not restate)`,
     ...(input.existingMemories.length > 0
@@ -87,11 +100,18 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
       : ["  (nothing yet)"]),
   ].join("\n");
 
+  // The exact shape is repeated in the user message, not only the system one.
+  // Measured: models follow a concrete example far more reliably than a prose
+  // description, and a malformed shape costs the whole batch.
   const user = [
     `TRANSCRIPT`,
     ...input.transcript.map((t) => `${t.speaker}: ${t.content}`),
     ``,
-    `Extract now. Respond with JSON matching the required schema.`,
+    `Extract now. Respond with JSON in exactly this shape:`,
+    `{"memories":[{"kind":"episodic","content":"The user ...","subjects":["Name"],` +
+      `"importance":0.8,"confidence":0.9,"worldDay":${String(input.worldDay)},` +
+      `"knownBy":["Name"],"visibility":"world"}],` +
+      `"relationshipDeltas":[],"events":[],"contradictions":[]}`,
   ].join("\n");
 
   return {

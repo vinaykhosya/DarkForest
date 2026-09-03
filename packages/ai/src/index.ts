@@ -11,6 +11,15 @@
 
 export { MockProvider, type MockConfig, type MockFailureMode } from "./providers/mock.js";
 export { MockEmbeddingProvider, cosineSimilarity } from "./providers/mock-embeddings.js";
+export {
+  CloudflareEmbeddingProvider,
+  type CloudflareEmbeddingConfig,
+} from "./providers/cloudflare-embeddings.js";
+export {
+  GroqProvider,
+  GROQ_FREE_REQUEST_CEILING,
+  type GroqConfig,
+} from "./providers/groq.js";
 export { probePrompt, type PromptProbe } from "./providers/prompt-probe.js";
 export { fnv1a, unitHash, pick } from "./providers/hash.js";
 

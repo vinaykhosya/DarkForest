@@ -60,7 +60,8 @@ export interface ExtractionOutcome {
   promptVersion: string | null;
 }
 
-const SCHEMA_HINT = `{"memories":[{"kind":"episodic|semantic|relational|world|persona","content":"string <=200 chars","subjects":["character:<uuid>"],"importance":0..1,"confidence":0..1,"worldDay":number|null,"knownBy":["<uuid>"],"visibility":"world|restricted|private"}],"relationshipDeltas":[{"from":"...","to":"...","deltas":{"trust":-15..15},"reason":"string >=8 chars"}],"events":[],"contradictions":[]}`;
+// Names, not ids — see CharacterNameSchema in contracts for why.
+const SCHEMA_HINT = `{"memories":[{"kind":"episodic|semantic|relational|world|persona","content":"string <=200 chars","subjects":["CharacterName"],"importance":0..1,"confidence":0..1,"worldDay":number|null,"knownBy":["CharacterName"],"visibility":"world|restricted|private"}],"relationshipDeltas":[{"from":"CharacterName","to":"CharacterName","deltas":{"trust":-15..15},"reason":"string >=8 chars"}],"events":[],"contradictions":[]}`;
 
 export async function extractMemories(
   store: InMemoryMemoryStore,
@@ -176,6 +177,27 @@ export async function extractMemories(
     };
   }
 
+  /*
+   * Resolve character NAMES to ids.
+   *
+   * The model emits names because that is what it can say reliably; the backend
+   * does the lookup because it can do it perfectly. An unrecognised name is
+   * dropped from that memory's subject list rather than failing the batch — a
+   * memory with a slightly wrong subject list is still a true memory, and
+   * losing the whole extraction over one typo is a far worse trade.
+   */
+  const byName = new Map<string, string>();
+  for (const entity of input.knownEntities) {
+    byName.set(entity.name.toLowerCase(), entity.ref);
+  }
+  const resolveRef = (name: string): string | null => byName.get(name.toLowerCase()) ?? null;
+  const resolveId = (name: string): CharacterId | null => {
+    const ref = resolveRef(name);
+    if (ref === null) return null;
+    const idx = ref.indexOf(":");
+    return (idx === -1 ? ref : ref.slice(idx + 1)) as CharacterId;
+  };
+
   // ── store, with write-time dedupe ─────────────────────────────────────────
   const stored: Memory[] = [];
   const merged: ExtractionOutcome["merged"] = [];
@@ -205,7 +227,7 @@ export async function extractMemories(
       worldId: input.worldId,
       kind: candidate.kind,
       content: candidate.content,
-      subjects: candidate.subjects,
+      subjects: candidate.subjects.map(resolveRef).filter((r): r is string => r !== null),
       worldDay: candidate.worldDay ?? input.worldDay,
       importance,
       confidence: candidate.confidence,
@@ -214,7 +236,9 @@ export async function extractMemories(
 
     // Knowledge isolation at birth. A restricted memory with no knownBy would be
     // invisible to everyone, so an explicit grant is required (docs/06 § 3).
-    for (const characterId of candidate.knownBy) {
+    for (const name of candidate.knownBy) {
+      const characterId = resolveId(name);
+      if (characterId === null) continue;
       await store.grantKnowledge(characterId, memory.id, "witnessed", 1, input.worldDay);
     }
 

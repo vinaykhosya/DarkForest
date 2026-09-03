@@ -50,8 +50,29 @@ const COMMISSIVE =
 const IRREVERSIBLE =
   /\b(betray(ed|al|s)?|died|dies|dead|death|kill(ed|s)?|murder(ed)?|leav(e|ing)|left|depart(ed|ing)?|abandon(ed)?|confess(ed|ion)?|reveal(ed)?|admit(ted)?|forgiv(e|en)|marry|married|destroy(ed)?)\b/i;
 
-const PREFERENCE =
-  /\b(i (always|never|prefer|hate|love|refuse to|can'?t stand)|my favou?rite|i'?m afraid of)\b/i;
+/**
+ * Preference statements about the player.
+ *
+ * The first version required "I" immediately before the adverb, so it matched
+ * "I always hated coriander" but missed "I've always hated coriander" — a
+ * contraction away. Caught by the lab: the Kapoor House stored 1 memory from 10
+ * turns, and the missing preference was the reason.
+ *
+ * Now tolerates an intervening auxiliary ("I have", "I've", "I had"), and adds
+ * the life-event verbs that carry durable facts about the player.
+ */
+const PREFERENCE = new RegExp(
+  [
+    // I / I've / I have / I had  +  preference verb
+    "\\bi(?:'ve|'d| have| had)?\\s+(?:always|never|really)?\\s*",
+    "(?:prefer|hate[ds]?|love[ds]?|like[ds]?|dislike[ds]?|refuse|can'?t stand|enjoy)",
+    "|\\bmy favou?rite\\b",
+    "|\\bi'?m (?:afraid|scared|terrified) of\\b",
+    // Durable life events stated about the player.
+    "|\\b(?:offered|accepted|rejected|quit|hired|fired|married|divorced)\\b",
+  ].join(""),
+  "i",
+);
 
 const DEFAULT_TURN_FLOOR = 12;
 

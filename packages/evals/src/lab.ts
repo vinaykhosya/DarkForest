@@ -1,4 +1,5 @@
 import { MockEmbeddingProvider, MockProvider } from "@darkforest/ai";
+import type { EmbeddingProvider } from "@darkforest/contracts";
 import type {
   Character,
   CharacterId,
@@ -77,6 +78,15 @@ function stateFor(world: TestWorld, day: number): WorldState {
 }
 
 export interface LabOptions {
+  /**
+   * Embedding provider. Defaults to the lexical mock.
+   *
+   * Swapping in the real provider is the difference between measuring whether
+   * the PIPELINE works and measuring whether RETRIEVAL works — the mock has no
+   * synonymy, so any paraphrased probe fails on vocabulary rather than on
+   * ranking.
+   */
+  embedder?: EmbeddingProvider;
   /** Which character answers. Defaults to the first in the world. */
   speakerId?: CharacterId;
   /** Extra probe turns appended after the script, for recall testing. */
@@ -89,7 +99,7 @@ export async function runLab(world: TestWorld, options: LabOptions = {}): Promis
 
   const store = new InMemoryMemoryStore();
   const provider = new MockProvider(options.seed === undefined ? {} : { seed: options.seed });
-  const embedder = new MockEmbeddingProvider();
+  const embedder: EmbeddingProvider = options.embedder ?? new MockEmbeddingProvider();
   const model: ModelDescriptor =
     provider.models.find((m) => m.tier === "standard") ?? provider.models[0]!;
 
