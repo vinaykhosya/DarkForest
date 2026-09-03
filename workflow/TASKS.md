@@ -46,11 +46,12 @@
 | P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ⊘ **Blocked: needs `GROQ_API_KEY`** |
 | P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☑ 36 tests. Parses its own prompt, so a dropped memory is detectable. Extraction output validated against the real `ExtractionResultSchema`. |
 | P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ⊘ **Blocked: needs `CF_ACCOUNT_ID` + `CF_API_TOKEN`** |
-| P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☐ Can start against the mock provider |
+| P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☑ `pnpm lab`. Ravenhold recall@k 3/3. Four bugs found and fixed by running it. |
 | P1-T09 | Ranking formula in `packages/core/memory` | T08 | Pure functions; unit tested; weights in a named, versioned module | ☑ Scoring, RRF, MMR, budget packing. Weights versioned in `weights.ts` |
-| P1-T10 | Extraction prompt v1 + Zod validation + repair path | T06 | Malformed output triggers one repair, then a clean drop; nothing invalid stored | ☐ |
-| P1-T11 | Dialogue prompt v1 | T05 | Follows the [09](../docs/09-context-builder-and-prompts.md) skeleton; version recorded per request | ☐ |
-| P1-T12 | Four canonical test worlds as seed fixtures | T04 | Ravenhold, Kapoor House, Mars Colony, Ashford — deterministic, committed | ☐ |
+| P1-T10 | Extraction prompt v1 + Zod validation + repair path | T06 | Malformed output triggers one repair, then a clean drop; nothing invalid stored | ☑ `extract/v1` + tolerant parse (fence strip, balanced-object scan) + one repair |
+| P1-T11 | Dialogue prompt v1 | T05 | Follows the [09](../docs/09-context-builder-and-prompts.md) skeleton; version recorded per request | ☑ `dialogue/v1`, full + compact profiles, write-time sanitiser, fenced authored content |
+| P1-T12 | Four canonical test worlds as seed fixtures | T04 | Ravenhold, Kapoor House, Mars Colony, Ashford — deterministic, committed | ☑ With planted facts and secret-probe ladders for suite 4 |
+| P1-T18 | **Knowledge isolation regression suite** *(added)* | T08 | A restricted memory is absent from another character's retrieved set across every probe phrasing | ☑ 11 tests, leak rate 0 |
 | P1-T13 | Eval harness runner | T12 | `pnpm eval <suite>` runs, scores, writes dated JSON to `docs/benchmarks/` | ☐ |
 | P1-T14 | Eval suite 1 — memory recall | T13 | 20 facts, 100 turns, probes at 30/60/100 + fresh session | ☐ |
 | P1-T15 | Eval suite 3 — character consistency | T13 | LLM judge with a fixed rubric, 3 samples, median | ☐ |

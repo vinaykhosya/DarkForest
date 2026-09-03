@@ -10,21 +10,88 @@
 | | |
 |---|---|
 | **Phase** | 1 — AI Lab & Evaluation Harness |
-| **Phase status** | Mock provider done; real-provider tasks blocked on keys |
-| **Next task** | **P1-T12** (test worlds) then **P1-T08** (memory loop) — both runnable against the mock |
-| **Blocked on** | **API keys: `GROQ_API_KEY`, `CF_ACCOUNT_ID` + `CF_API_TOKEN`** → blocks P1-T02, T05, T07 |
-| **Code** | 108 tests passing in ~60 ms · typecheck green · lint green |
+| **Phase status** | **Loop works end to end.** Gate not yet assessable — needs a real model. |
+| **Next task** | **P1-T13** eval harness runner, then T14/T15 (suites 1 and 3) |
+| **Blocked on** | **API keys: `GROQ_API_KEY`, `CF_ACCOUNT_ID` + `CF_API_TOKEN`** → blocks P1-T02, T05, T07 **and the Phase 1 gate** |
+| **Code** | 130 tests · typecheck green · lint green · `pnpm lab` runs offline and free |
 | **Money spent** | ₹0 |
+
+### Lab results (mock provider, lexical embeddings)
+
+| World | recall@k | answer accuracy | memories | model calls |
+|---|---|---|---|---|
+| Ravenhold | **3/3 (100%)** | 1/3 | 7 | 17 |
+| The Kapoor House | 2/3 (67%) | 1/3 | 4 | 26 |
+| Mars Colony 2147 | 2/3 (67%) | 1/3 | 4 | 18 |
+| The Ashford Inquiry | 1/2 (50%) | 1/2 | 2 | 16 |
+
+**These numbers do NOT constitute the Phase 1 gate.** The mock embedder is lexical
+only — no synonymy, no paraphrase. They are a lower bound on *pipeline*
+correctness, and the gate explicitly requires a real embedding provider.
+
+The sub-100% worlds are worth reading before tuning anything: Ashford's script
+plants facts in dialogue rather than in user statements, so the mock's
+user-lines-only extractor never sees them. That is a fixture-and-mock artefact,
+not a retrieval failure — and a good reminder that a real extractor will need to
+read character lines too.
 
 ### The next three things
 
-1. **P1-T12** — the four canonical test worlds as fixtures. Needs no keys.
-2. **P1-T08** — the memory loop against the mock provider. This is the first end-to-end proof that retrieval → prompt → generate → extract → store works.
-3. **API keys** — Groq and Cloudflare. Everything touching a real model waits on these, including the Phase 1 gate itself.
+1. **P1-T13** — eval harness runner, so results are dated JSON rather than console output.
+2. **API keys** — Groq and Cloudflare. The Phase 1 gate cannot be assessed without them.
+3. **P0-T13** — the end-to-end spec contradiction read. Still deferred.
 
 ---
 
 ## Session log
+
+### 2026-09-03 (3) — The memory loop runs
+
+**Done** — P1-T08 ☑ · P1-T10 ☑ · P1-T11 ☑ · P1-T12 ☑ · P1-T18 ☑ (new)
+
+Three new packages: `@darkforest/memory` (store boundary, in-memory impl,
+retrieval pipeline, gated extraction), `@darkforest/prompts` (dialogue/v1,
+extract/v1, injection sanitiser), `@darkforest/evals` (four canonical worlds,
+lab CLI). `pnpm lab` runs the whole loop offline and free.
+
+**Learned — four bugs, all found by running the thing rather than by reading it:**
+
+1. **A mock that stores contentless memories tests nothing.** The first run
+   showed recall 0% and my instinct was "retrieval is broken." It wasn't — the
+   mock was emitting canned strings like *"The user made a promise."* with no
+   content. There was nothing specific to retrieve. Worth remembering: when a
+   metric reads zero, check that the thing being measured exists.
+
+2. **The gate read the whole rolling window**, so a "promise" three turns back
+   kept re-firing and the signal list grew monotonically until effectively
+   nothing was gated. The window and the gate need *different spans*: gate on
+   what is new, extract over the window.
+
+3. **The mock extracted from its own prompt scaffolding** — it stored Elena's
+   dialogue as fact, stored the literal word "TRANSCRIPT", then on the next turn
+   extracted its own previous output recursively. For the extract task class the
+   "user" message is the rendered prompt, not the player's turn.
+
+4. **My recall metric was wrong.** It measured "did the character echo the fact",
+   which measures the model's phrasing rather than the ranking — and makes a
+   retrieval regression indistinguishable from a generation one. docs/15 suite 1
+   separates recall@k from answer accuracy for exactly this reason, and I had
+   collapsed them. Split; recall@k went from 0% to 100% on Ravenhold with no
+   change to retrieval at all.
+
+**Also:** a stray `0x02` control character had been written into `mock.ts` —
+invisible in the editor, and it silently broke exact-match edits until I dumped
+the bytes. Scanned the repo; single occurrence. Separately, lint caught that the
+*invisible-character detector* in `sanitize.ts` contained literal invisible
+characters. Rewritten with `\u` escapes: a detector you cannot read is precisely
+the thing it exists to catch.
+
+**Decided** — nothing new. ADR-016's gate is now implemented and remains
+provisional pending suite 1 with and without it.
+
+**Next** — P1-T13 eval harness. The Phase 1 gate still needs real API keys.
+
+---
 
 ### 2026-09-03 (2) — Provider research + Phase 1 foundation
 
