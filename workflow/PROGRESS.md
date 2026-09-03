@@ -9,23 +9,51 @@
 
 | | |
 |---|---|
-| **Phase** | 0 — Architecture & Specification |
-| **Phase status** | Deliverables complete; gate not yet assessed |
-| **Next task** | **P0-T11** — resolve open decisions D-001, D-002, D-003 |
-| **Blocked on** | Nothing |
-| **Code written** | None (correct for this phase) |
+| **Phase** | 1 — AI Lab & Evaluation Harness |
+| **Phase status** | Foundation built; gate not yet assessable (needs a real provider) |
+| **Next task** | **P1-T06** — mock provider (not blocked) |
+| **Blocked on** | **API keys: `GROQ_API_KEY`, `CF_ACCOUNT_ID` + `CF_API_TOKEN`** → blocks P1-T02, T05, T07 |
+| **Code** | 53 tests passing in 26 ms · typecheck green · lint green |
 | **Money spent** | ₹0 |
-| **Days to Phase 1** | Gated on P0-T11, T12, T13 |
 
 ### The next three things
 
-1. **P0-T12** — verify every free-tier limit in [01](../docs/01-principles-and-constraints.md) § Part C. Several were taken from external research and are unverified. The architecture assumes them.
-2. **P0-T11** — decide D-001 (backend runtime), D-002 (embedding provider), D-003 (auth). D-001 depends on T12's findings.
-3. **P0-T13** — read the full spec set end to end looking for contradictions. Twenty documents written in one pass will contain some.
+1. **P1-T06** — mock provider. Unblocked, and it unblocks the whole memory loop without spending a single token.
+2. **API keys** — Groq (primary, privacy-clean) and Cloudflare (embeddings). Everything touching a real model waits on these.
+3. **P0-T13** — read the spec set end to end for contradictions. Deferred, not forgotten.
 
 ---
 
 ## Session log
+
+### 2026-09-03 (2) — Provider research + Phase 1 foundation
+
+**Done** — P0-T12 ☑ · P1-T01 ☑ · P1-T03 ☑ · P1-T04 ☑ · P1-T09 ☑ · P0-T11 ◐
+
+**Learned — this is the section that matters.** Four findings, all of which changed the plan:
+
+1. **OpenRouter free is 50 requests/day**, not the workhorse the blueprint assumed. That is ~10 multi-character turns per day for the entire platform. A one-time $10 credit raises it to 1,000/day permanently (ADR-011).
+
+2. **Groq resolves the privacy/budget conflict.** Its Services Agreement forbids training on customer inputs or outputs, account-wide, free tier included — so unlike Gemini it can carry *real user content*. 1,000 req/day per model across 4 usable models. This was a better outcome than either option in the original question, and it became ADR-009.
+
+3. **Gemini and NVIDIA NIM both explicitly warn against submitting personal data** and use content to improve their models. Both are development-only, disabled in production by config. **GitHub Models was retired 2026-07-30** — worth checking before designing around it. **Cerebras is 5 RPM and requires a payment method**, contradicting the widely-repeated "14,400 RPD, no card" claim; its own docs won.
+
+4. **The binding constraint is tokens/day, not requests/day.** At ~12,000 tokens per generation against Groq's 200K/day per-model cap, the total ₹0 pool is ~70 turns/day. Enough for Phases 1–10, not for a 50–100 user beta. Produced ADR-012 (compact context profile).
+
+**Two design flaws found by the tests, both mine, both real:**
+
+- **RRF normalisation was broken.** Linear normalisation against the theoretical maximum put a rank-4 result at 0.95 — because with k=60, ranks 1 and 4 differ by under 5%. That value feeds the `similarity` term at weight 0.30, so it would have collapsed into a near-constant and the ranking formula would have silently lost its most heavily weighted input. Replaced with exponential rank decay. My own code comment had asserted the opposite; the test caught it.
+- **The soft MMR penalty did not stop restatements.** Measured: two phrasings of the Ravenblade fact score Jaccard 0.667, giving a 0.20 penalty against a 0.22 relevance gap — the duplicate wins. Added a hard near-duplicate cutoff at 0.6, with a calibration test proving genuinely distinct memories (0.50) stay below it.
+
+A third test failure was a bad fixture of mine — `"Distinct fact number ${i}"` shares 4 of 5 content words between iterations, so the cutoff correctly rejected it. Kept as a documented note: **the cutoff bites hard on templated text.**
+
+**Decided** — ADR-009 (Groq primary), ADR-010 (Hono, so the Workers 10 ms CPU / 50 subrequest limits stop being a one-way door), ADR-011 ($10 OpenRouter as a Phase 11 prerequisite), ADR-012 (compact context profile).
+
+**Blocked** — P1-T02, T05, T07 all need API keys.
+
+**Next** — P1-T06 mock provider, which needs no keys and unblocks the memory loop.
+
+---
 
 ### 2026-09-03 — Phase 0 specification set written
 

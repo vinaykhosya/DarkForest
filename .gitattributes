@@ -1,0 +1,10 @@
+# Normalise to LF in the repository. The working tree keeps native endings.
+# Without this, every file committed from Windows produces CRLF warnings and
+# spurious whole-file diffs when the repo is touched from another platform.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.pdf binary

@@ -27,8 +27,8 @@
 | P0-T08 | Channels, security, moderation, billing specs | T07 | [11](../docs/11-channels.md)–[14](../docs/14-billing-and-entitlements.md) written | ☑ |
 | P0-T09 | Testing, ops, economics, launch specs | T08 | [15](../docs/15-testing-and-evaluation.md)–[18](../docs/18-launch-checklist.md) written | ☑ |
 | P0-T10 | Workflow, task board, decision log | all | This file, [WORKFLOW.md](WORKFLOW.md), [DECISIONS.md](DECISIONS.md), [PROGRESS.md](PROGRESS.md) | ☑ |
-| P0-T11 | Resolve open decisions D-001…D-003 | T10 | Backend runtime, embedding provider, auth provider decided with ADRs | ☐ |
-| P0-T12 | Verify every free-tier limit in [01](../docs/01-principles-and-constraints.md) § Part C | T10 | Every ☐ in that table ticked, with a date and a source | ☐ |
+| P0-T11 | Resolve open decisions D-001…D-003 | T10 | Backend runtime, embedding provider, auth provider decided with ADRs | ◐ D-001 → ADR-010 (Hono). D-002 → ADR-009 (Workers AI). **D-003 deferred to P5** |
+| P0-T12 | Verify every free-tier limit in [01](../docs/01-principles-and-constraints.md) § Part C | T10 | Every ☐ in that table ticked, with a date and a source | ☑ All verified except Telegram (Phase 10). See [provider landscape](../docs/benchmarks/2026-09-03-provider-landscape.md) |
 | P0-T13 | Read the whole spec set end to end and list contradictions | T10 | Contradictions found and resolved, or logged as ADRs | ☐ |
 
 **Gate:** every feature-admission question answerable from these docs alone.
@@ -39,15 +39,15 @@
 
 | ID | Task | Depends | Acceptance | Status |
 |---|---|---|---|---|
-| P1-T01 | Monorepo skeleton: pnpm workspaces, TS strict, eslint, prettier, vitest | P0 gate | `pnpm test` runs; strict mode with no `any` escape hatches | ☐ |
-| P1-T02 | **Verify model availability & benchmark candidates** | T01 | Every candidate model's free status, context, tool support and structured-output support verified empirically. Results in `docs/benchmarks/`. ADR recorded. | ☐ |
-| P1-T03 | Module-boundary lint rule | T01 | Importing `modules/x/repo` from `modules/y` fails CI | ☐ |
-| P1-T04 | `packages/contracts` — core Zod schemas | T01 | Memory, character, world, message, AI request/response schemas | ☐ |
-| P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ☐ |
-| P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☐ |
-| P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ☐ |
-| P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☐ |
-| P1-T09 | Ranking formula in `packages/core/memory` | T08 | Pure functions; unit tested; weights in a named, versioned module | ☐ |
+| P1-T01 | Monorepo skeleton: pnpm workspaces, TS strict, eslint, prettier, vitest | P0 gate | `pnpm test` runs; strict mode with no `any` escape hatches | ☑ 53 tests, 26 ms. typecheck + lint green |
+| P1-T02 | **Verify model availability & benchmark candidates** | T01 | Every candidate model's free status, context, tool support and structured-output support verified empirically. Results in `docs/benchmarks/`. ADR recorded. | ◐ Documented limits verified (ADR-009). **Empirical verification blocked on API keys** |
+| P1-T03 | Module-boundary lint rule | T01 | Importing `modules/x/repo` from `modules/y` fails CI | ☑ Verified firing: model-name rule + core-purity rule both reject a probe file |
+| P1-T04 | `packages/contracts` — core Zod schemas | T01 | Memory, character, world, message, AI request/response schemas | ☑ Branded ids, memory, ai, character, world |
+| P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ⊘ **Blocked: needs `GROQ_API_KEY`** |
+| P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☐ Next — not blocked |
+| P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ⊘ **Blocked: needs `CF_ACCOUNT_ID` + `CF_API_TOKEN`** |
+| P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☐ Can start against the mock provider |
+| P1-T09 | Ranking formula in `packages/core/memory` | T08 | Pure functions; unit tested; weights in a named, versioned module | ☑ Scoring, RRF, MMR, budget packing. Weights versioned in `weights.ts` |
 | P1-T10 | Extraction prompt v1 + Zod validation + repair path | T06 | Malformed output triggers one repair, then a clean drop; nothing invalid stored | ☐ |
 | P1-T11 | Dialogue prompt v1 | T05 | Follows the [09](../docs/09-context-builder-and-prompts.md) skeleton; version recorded per request | ☐ |
 | P1-T12 | Four canonical test worlds as seed fixtures | T04 | Ravenhold, Kapoor House, Mars Colony, Ashford — deterministic, committed | ☐ |
