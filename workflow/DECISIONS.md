@@ -434,6 +434,58 @@ blocking item.
 
 ---
 
+### ADR-020 — Groq's 8,000-token per-request ceiling makes `compact` mandatory
+**2026-09-03 · Accepted · Constrains [09](../docs/09-context-builder-and-prompts.md) § 2, promotes ADR-012 from optimisation to requirement**
+
+**Context.** Header semantics were established empirically, because the first
+capacity script mislabelled them and reported ~100× the real figure:
+
+```
+x-ratelimit-limit-requests: 1000   requests per DAY   (reset ≈ 86.4 s/request)
+x-ratelimit-limit-tokens:   8000   tokens per MINUTE  (reset ≈ 0.45 ms/token)
+```
+
+Then the finding that matters. TPM is not only a rate — it is a hard ceiling on a
+**single request**. Sending ~10K tokens returns:
+
+> `Request too large for model openai/gpt-oss-120b … on tokens per minute (TPM): Limit 8000, Requested 8147, please reduce your message size`
+
+Note it compares against the **limit**, not the remaining bucket. Waiting does
+not help; the request is simply impossible on this tier.
+
+**Decision.**
+
+1. **`compact` (~5.6K in + 600 out) is the only profile that runs on Groq.**
+   ADR-012 introduced it as an economic lever; it is now a hard requirement for
+   our primary provider.
+2. **`full` (~11.3K in) cannot use Groq at all.** It routes to OpenRouter, whose
+   Nemotron endpoints carry 1M context with no per-request ceiling.
+3. **The `deep` tier must route to OpenRouter**, not to a larger Groq model.
+   There is no larger Groq model available to us — the ceiling is per-tier, not
+   per-model, and every dialogue model reports the same 8000.
+4. The context builder **validates against the selected model's ceiling before
+   the call** and drops by priority to fit. A request rejected for size is a
+   wasted round trip against a 1000/day budget.
+
+**Rationale.** Discovering this at Phase 9 — when the UI assumes a rich context —
+would have meant rebuilding the context builder. Discovering it now costs a
+constant.
+
+**Trade-off.** Free-tier quality is bounded by what fits in ~5.6K tokens: about
+6 memories, 6 transcript messages, no conversation summary, no recent events.
+That is a real quality ceiling on the free tier and it must be measured
+separately in eval suite 3 rather than assumed equivalent to `full`.
+
+**The upside worth noting.** The daily ceiling turns out to be REQUEST-bound
+(1000/model/credential), not token-bound. Across 4 credentials × 4 dialogue
+models that is **16,000 generations/day ≈ 8,200 turns/day** — far more than the
+~70/day the earlier (wrong) 200K-tokens/day assumption implied.
+
+**Revisit.** If Groq's free tier changes, or if a paid tier is adopted — Dev Tier
+raises the ceiling and would make `full` viable on Groq.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

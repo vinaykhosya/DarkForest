@@ -78,9 +78,10 @@ export function packMemories(
 /**
  * Context section budgets — docs/09 § 2, extended by ADR-012.
  *
- * `compact` roughly halves the cost of a generation, which against Groq's
- * 200K tokens/day per-model cap is the difference between ~16 and ~32 generations.
- * Context size is an economic lever here, not only a quality one.
+ * `compact` roughly halves the cost of a generation. ADR-012 introduced it as an
+ * economic lever; ADR-020 made it a REQUIREMENT: Groq free tier rejects any single
+ * request over 8000 tokens, so `full` (~11.3K) cannot run there at all and must
+ * route to OpenRouter. See REQUEST_CEILINGS below.
  */
 export interface SectionBudget {
   systemFrame: number;
@@ -132,6 +133,38 @@ export const COMPACT_PROFILE: Readonly<SectionBudget> = Object.freeze({
   userMessage: 300,
   outputInstruction: 150,
 });
+
+/**
+ * Hard per-request token ceilings, by provider tier — ADR-020.
+ *
+ * These are REQUEST ceilings, not rates. Groq rejects anything larger outright
+ * ("Request too large ... Limit 8000, Requested 8147"), comparing against the
+ * limit rather than the remaining bucket, so waiting does not help.
+ *
+ * The context builder must check the selected model's ceiling BEFORE the call.
+ * A size rejection is a wasted round trip against a 1000/day budget.
+ */
+export const REQUEST_CEILINGS = {
+  /** Groq free tier: 8000 TPM, and a single request may not exceed it. */
+  groqFree: 8_000,
+  /** OpenRouter Nemotron: 1M context, no practical per-request ceiling. */
+  openrouter: 1_000_000,
+  mock: 128_000,
+} as const;
+
+/**
+ * Does this profile fit under a ceiling, allowing for the output reservation?
+ *
+ * `full` does NOT fit on Groq free. That is the constraint ADR-020 records, and
+ * it is why `compact` is a requirement rather than an optimisation.
+ */
+export function fitsUnderCeiling(
+  budget: SectionBudget,
+  ceiling: number,
+  outputReserve = 600,
+): boolean {
+  return totalBudget(budget) + outputReserve <= ceiling;
+}
 
 export function totalBudget(b: SectionBudget): number {
   let total = 0;
