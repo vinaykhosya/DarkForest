@@ -56,6 +56,16 @@ Every box in that checklist. No exceptions, no "we'll do it next week." Copy the
 
 - [ ] Full security checklist complete, dated, signed off
 
+### 1b. Credential pooling decision (ADR-019) — **blocking**
+
+Development runs on pooled free credentials across multiple accounts per provider. That was an explicit, recorded decision for *development* traffic, which every provider's terms permit. Serving **real users** from pooled free accounts is a separate question and was deliberately deferred to this point.
+
+- [ ] Decide: pooled free credentials in production, or one credential per provider plus paid capacity
+- [ ] Re-read each provider's terms specifically on multiple-account use
+- [ ] Privacy policy rewritten and accurate about which providers see user content
+- [ ] If pooling stays: accept in writing that correlated enforcement can remove the entire pool at once, and have a tested fallback for losing Groq specifically
+- [ ] Verify `checkPoolEligibility()` still blocks Gemini and NVIDIA in the production environment
+
 ### 2. Ownership migration ([12](12-security.md) § 11)
 
 - [ ] Domain registered to the company, privacy on, auto-renew, transfer lock

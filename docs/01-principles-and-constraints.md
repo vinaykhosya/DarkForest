@@ -84,9 +84,18 @@ No GPU. No paid inference commitment. No reserved capacity. Each is unlocked by 
 
 ### B3. Only legitimate provider access.
 
-No multi-account rotation, no quota circumvention, no rate-limit evasion, no scraping of provider endpoints. One account per provider, on documented free tiers, within published limits.
+**Amended 2026-09-03 by ADR-019.** The original text read *"No multi-account rotation… One account per provider."* Multi-credential pools are now permitted; the rest of the clause stands unchanged.
 
-This is both an ethical line and a practical one: an architecture that depends on abuse cannot be handed to a partner, an investor, or an acquirer, and it collapses the moment a provider enforces its terms.
+Still prohibited, without exception:
+
+- Rate-limit evasion — no retry-storming a 429, no clock manipulation, no header spoofing
+- Quota circumvention beyond holding legitimate, independently-registered accounts
+- Scraping provider endpoints, or using undocumented APIs
+- Any use a provider's terms forbid — enforced in code by `checkPoolEligibility()`, which is untouched by ADR-019
+
+**The risk we accepted, stated plainly:** accounts registered by one person tend to share a phone, an email domain and an IP. Enforcement is therefore correlated — a provider acting against one account likely takes the whole pool at once. That is a single point of failure wearing the costume of redundancy, and it is most acute on our only production-eligible privacy-clean provider.
+
+The original rationale also still stands and is *not* resolved by the amendment: an architecture that depends on pooled free accounts is harder to hand to a partner, an investor or an acquirer. **Whether pooled credentials serve real users is deliberately deferred to Phase 11** and is a blocking item on Gate B of the [launch checklist](18-launch-checklist.md). Development traffic — synthetic, local, and permitted by every provider's terms including NVIDIA's — is not in question.
 
 ### B4. Memory is never paywalled.
 

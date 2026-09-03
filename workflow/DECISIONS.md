@@ -375,6 +375,65 @@ pool exhausted        everyone queued — degradation ladder Level 4
 
 ---
 
+### ADR-019 — Multi-credential pools per provider
+**2026-09-03 · Accepted · Supersedes R-001 · Amends [01](../docs/01-principles-and-constraints.md) § B3**
+
+**Context.** Throughput per credential is the binding constraint on development
+velocity: one Groq key yields ~800K tokens/day, and a multi-character turn plus
+extraction consumes several thousand. The founder holds multiple pre-existing
+credentials per provider from a retired project.
+
+**Measured first.** A diagnostic fired one request per Groq key and read the
+returned rate-limit headers. All four reported `remaining_requests=999` — had the
+budget been shared, the fourth would have read 996. **The credentials are
+independent and pooling them genuinely multiplies capacity.** This was worth
+measuring rather than assuming: for many providers limits are account-scoped and
+extra keys buy nothing at all.
+
+**Decision.** Providers accept a comma-separated credential list. The router
+selects by fractional headroom (the ADR-017 rule applied per credential), tracks
+RPM/RPD/TPM/TPD per credential, cools rate-limited credentials, and permanently
+disables rejected ones.
+
+**What this reverses.** R-001 rejected multi-account rotation, and § B3 vetoed
+it. The founder was presented with the risk analysis and reaffirmed. Recording it
+here rather than letting the code quietly contradict the docs (CLAUDE.md § 2).
+
+**Trade-off — accepted explicitly:**
+
+- **Correlated enforcement.** Accounts created by one person likely share a
+  phone, email domain and IP. If a provider acts, it takes the whole pool at
+  once — a single point of failure wearing the costume of redundancy. This is
+  most acute on Groq, our only production-eligible privacy-clean provider.
+- **The architecture is harder to hand over.** A dependency on pooled free
+  accounts is not something that survives diligence by a partner or acquirer.
+- **§ B3's remaining half still holds:** no rate-limit evasion, no quota
+  circumvention beyond holding legitimate independent accounts, no scraping.
+
+**What is NOT affected.** `checkPoolEligibility()` (ADR-013/014) is untouched and
+still enforced. NVIDIA and Gemini remain barred from any traffic that is not
+local-and-synthetic. Pooling changes *how many credentials* a provider has, never
+*which providers may serve users*.
+
+**Why this is currently uncontroversial.** All Phase 1 traffic is synthetic test
+data in local development, which every provider's terms explicitly permit —
+including NVIDIA's, whose restriction is on production specifically. The
+contentious case is production traffic, which does not exist yet.
+
+**Deferred to Phase 11 — must be revisited, not forgotten:**
+
+- [ ] Whether pooled free accounts serve real users, or production moves to one
+      credential per provider plus paid capacity
+- [ ] Privacy policy rewrite; the founder has deferred this deliberately
+- [ ] Re-verify each provider's terms on multiple accounts before public launch
+
+Added to the [launch checklist](../docs/18-launch-checklist.md) Gate B as a
+blocking item.
+
+**Revisit.** Before Phase 11 cohort 1, unconditionally.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

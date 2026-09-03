@@ -1,0 +1,12 @@
+{
+  // Operational scripts. Type-checked like everything else — a diagnostic that
+  // lies because it does not compile is worse than no diagnostic.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "composite": true
+  },
+  "include": ["**/*.ts"]
+}

@@ -264,12 +264,21 @@ async function checkOpenRouter(key: string): Promise<Check[]> {
     });
     const body = (await res.json()) as { data?: Record<string, unknown> };
     const d = body.data ?? {};
+    // JSON.stringify rather than String(): `rate_limit` is an object, and
+    // String() renders it "[object Object]" — which is exactly what the first
+    // run of this script printed. Lint caught it; the output had already shown it.
+    const show = (v: unknown): string => {
+      if (v === undefined || v === null) return "n/a";
+      if (typeof v === "string") return v;
+      if (typeof v === "number" || typeof v === "boolean") return String(v);
+      return JSON.stringify(v);
+    };
     checks.push({
       provider: "openrouter",
       target: "auth + quota",
       ok: res.ok,
       detail: res.ok
-        ? `limit=${String(d["limit"] ?? "n/a")} used=${String(d["usage"] ?? 0)} rpd_free=${String(d["rate_limit"] ?? "n/a")}`
+        ? `limit=${show(d["limit"])} used=${show(d["usage"])} rate_limit=${show(d["rate_limit"])}`
         : `HTTP ${String(res.status)}`,
     });
   } catch (e) {

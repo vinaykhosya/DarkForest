@@ -13,3 +13,10 @@ export { MockProvider, type MockConfig, type MockFailureMode } from "./providers
 export { MockEmbeddingProvider, cosineSimilarity } from "./providers/mock-embeddings.js";
 export { probePrompt, type PromptProbe } from "./providers/prompt-probe.js";
 export { fnv1a, unitHash, pick } from "./providers/hash.js";
+
+export {
+  CredentialRegistry,
+  redactKeys,
+  PROVIDER_CREDENTIALS,
+  type ProviderCredentialConfig,
+} from "./credentials.js";
