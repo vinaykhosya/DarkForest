@@ -53,7 +53,11 @@ export const MemorySchema = z.object({
   isUserEdited: z.boolean().default(false),
   supersededBy: MemoryIdSchema.nullable().default(null),
   accessCount: z.number().int().min(0).default(0),
+  lastAccessedAt: z.string().datetime().nullable().default(null),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable().default(null),
+  /** Soft delete. Retrieval must exclude these; consolidation must not resurrect them. */
+  deletedAt: z.string().datetime().nullable().default(null),
 });
 export type Memory = z.infer<typeof MemorySchema>;
 

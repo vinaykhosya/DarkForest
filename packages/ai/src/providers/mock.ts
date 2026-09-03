@@ -273,7 +273,13 @@ export class MockProvider implements AIProvider {
       return `${line} [mock:${name}:no-memories]`;
     }
 
-    const memory = pick(probe.memories, `${fingerprint}mem`);
+    // Echo the FIRST memory, not a hash-picked one. Memories arrive in the
+    // prompt in rank order, so the first is what retrieval considered most
+    // relevant. A real model given a ranked list preferentially uses the top of
+    // it; picking at random modelled a worse model than we will ship, and made
+    // the lab's answer-accuracy metric measure a dice roll rather than ranking.
+    const memory = probe.memories[0];
+    if (memory === undefined) return `${line} [mock:${name}:no-memories]`;
     const dayTag = memory.day === null ? "" : ` day ${String(memory.day)}:`;
     return `${line} I haven't forgotten —${dayTag} ${memory.content} [mock:${name}:mem=${String(probe.memories.length)}]`;
   }
@@ -295,40 +301,60 @@ export class MockProvider implements AIProvider {
     events: Array<Record<string, unknown>>;
     contradictions: never[];
   } {
-    const transcript = req.messages
-      .filter((m) => m.role === "user")
-      .map((m) => m.content)
-      .join(" ");
-    const lower = transcript.toLowerCase();
     const day = probe.worldDay;
-
     const memories: Array<Record<string, unknown>> = [];
     const relationshipDeltas: Array<Record<string, unknown>> = [];
 
-    const signals: Array<[RegExp, string, number]> = [
-      [/\bpromis/, "The user made a promise.", 0.85],
-      [/\b(swear|swore|vow)/, "The user swore an oath.", 0.9],
-      [/\bbetray/, "A betrayal occurred.", 0.95],
-      [/\b(gave|gift|handed)/, "The user gave something away.", 0.6],
-      [/\b(leaving|leave|depart)/, "The user announced a departure.", 0.75],
-      [/\b(kill|died|dead|death)/, "A death was discussed.", 0.9],
+    // Signal → importance. Weighted by irreversibility, as docs/04 § 4 specifies.
+    const signals: Array<[RegExp, number]> = [
+      [/\b(swear|swore|vow|oath)\b/i, 0.9],
+      [/\bbetray/i, 0.95],
+      [/\b(kill|killed|died|dead|death)\b/i, 0.9],
+      [/\bpromis/i, 0.85],
+      [/\b(leaving|leave|depart)/i, 0.75],
+      [/\b(own|owns|have|carry|took|taken)\b/i, 0.6],
+      [/\b(gave|gift|handed)\b/i, 0.6],
+      [/\b(never|always|hate|hated|prefer|distrust|trust)\b/i, 0.5],
     ];
 
-    for (const [pattern, content, importance] of signals) {
-      if (!pattern.test(lower)) continue;
+    /*
+     * For the extract task class the "user" message is the RENDERED EXTRACTION
+     * PROMPT, not the player's turn. Reading it naively made the mock extract
+     * from its own scaffolding — it stored Elena's dialogue as a fact, stored
+     * the literal word "TRANSCRIPT", and then on the next turn extracted its own
+     * previous output recursively.
+     *
+     * So parse the transcript block out of the prompt and consider only the
+     * player's lines. A character's line is something that was SAID; the fact it
+     * conveys is the extractor's job to state, not to quote.
+     */
+    const source = extractTranscriptUserLines(req).join(" ");
+
+    for (const sentence of splitSentences(source)) {
+      const matched = signals.find(([pattern]) => pattern.test(sentence));
+      if (!matched) continue;
+
+      const content = toThirdPerson(sentence);
+      // The schema floor. Below it the memory is not a fact.
+      if (content.length < 8) continue;
+
       memories.push({
-        kind: "episodic",
-        content,
+        kind: /\b(never|always|prefer|hate|distrust)\b/i.test(sentence) ? "persona" : "episodic",
+        content: content.slice(0, 200),
         subjects: [],
-        importance,
+        importance: matched[1],
         confidence: 0.9,
         worldDay: day,
         knownBy: [],
         visibility: "world",
       });
+
+      // At most 2 per turn — the mock must respect the same selectivity target
+      // as the real extractor, or the lab's memory counts mean nothing.
+      if (memories.length >= 2) break;
     }
 
-    if (/\bbetray/.test(lower)) {
+    if (/\bbetray/i.test(source)) {
       relationshipDeltas.push({
         from: "narrator",
         to: "narrator",
@@ -405,4 +431,84 @@ export class MockProvider implements AIProvider {
       },
     ];
   }
+}
+
+/**
+ * Pulls the player's lines out of a rendered extraction prompt.
+ *
+ * The prompt (extract/v1) lays the window out as:
+ *
+ *   TRANSCRIPT
+ *   user: I promise Elena I will return before sunset.
+ *   Elena: Then say it plainly.
+ *
+ *   Extract now. Respond with JSON ...
+ *
+ * Only `user:` lines are returned. Everything else — character dialogue, the
+ * section headers, the trailing instruction — is scaffolding, and treating it as
+ * source material is how the mock ended up storing its own output as memory.
+ */
+function extractTranscriptUserLines(req: GenerateRequest): string[] {
+  const promptText = req.messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join("\n");
+
+  const start = promptText.indexOf("TRANSCRIPT");
+  if (start === -1) {
+    // Not an extraction prompt — treat the whole message as the source.
+    return [promptText];
+  }
+
+  const body = promptText.slice(start + "TRANSCRIPT".length);
+  const lines: string[] = [];
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith("Extract now")) break;
+    const match = /^user:\s*(.+)$/i.exec(line);
+    if (match?.[1] !== undefined) lines.push(match[1]);
+  }
+  return lines;
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * First person → third person.
+ *
+ * Crude, but it produces memories that CARRY THEIR CONTENT, which is what makes
+ * the lab's recall probe meaningful. An earlier version emitted canned strings
+ * ("The user made a promise.") and recall measured 0% — not because retrieval
+ * was broken, but because there was nothing specific to retrieve. A mock that
+ * stores contentless memories tests nothing.
+ *
+ * Mirrors writing rule 3 in docs/04 § 3: resolve references at write time,
+ * because the retrieval context is not the writing context.
+ */
+function toThirdPerson(sentence: string): string {
+  let out = sentence
+    .replace(/^\s*I\b/, "The user")
+    .replace(/\bI'm\b/gi, "the user is")
+    .replace(/\bI've\b/gi, "the user has")
+    .replace(/\bI'll\b/gi, "the user will")
+    .replace(/\bI\b/g, "the user")
+    .replace(/\bmy\b/gi, "their")
+    .replace(/\bmine\b/gi, "theirs")
+    .replace(/\bme\b/gi, "them")
+    .replace(/\bmyself\b/gi, "themselves");
+
+  // Drop reporting verbs so the fact, not the telling of it, is stored.
+  out = out.replace(
+    /^The user (tell|tells|told|mention|mentions|mentioned|say|says|said) ([A-Z]\w+) (that )?/,
+    (_m, _verb: string, name: string) => `The user told ${name} that `,
+  );
+
+  out = out.charAt(0).toUpperCase() + out.slice(1);
+  return out.endsWith(".") || out.endsWith("!") || out.endsWith("?") ? out : `${out}.`;
 }

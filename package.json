@@ -16,7 +16,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "lab": "tsx packages/evals/src/lab.ts",
+    "lab": "tsx packages/evals/src/cli.ts",
     "eval": "tsx packages/evals/src/run.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:snapshot": "tsx scripts/snapshot.ts",

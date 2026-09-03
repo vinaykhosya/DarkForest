@@ -67,6 +67,51 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/evals:
+    dependencies:
+      '@darkforest/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@darkforest/core':
+        specifier: workspace:*
+        version: link:../core
+      '@darkforest/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@darkforest/prompts':
+        specifier: workspace:*
+        version: link:../prompts
+
+  packages/memory:
+    dependencies:
+      '@darkforest/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@darkforest/core':
+        specifier: workspace:*
+        version: link:../core
+      '@darkforest/prompts':
+        specifier: workspace:*
+        version: link:../prompts
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
+  packages/prompts:
+    dependencies:
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@darkforest/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@ampproject/remapping@2.3.0':

@@ -18,3 +18,4 @@ export * from "./memory/scoring.js";
 export * from "./memory/fusion.js";
 export * from "./memory/mmr.js";
 export * from "./memory/budget.js";
+export * from "./memory/extraction-gate.js";
