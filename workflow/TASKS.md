@@ -40,12 +40,12 @@
 | ID | Task | Depends | Acceptance | Status |
 |---|---|---|---|---|
 | P1-T01 | Monorepo skeleton: pnpm workspaces, TS strict, eslint, prettier, vitest | P0 gate | `pnpm test` runs; strict mode with no `any` escape hatches | ☑ 53 tests, 26 ms. typecheck + lint green |
-| P1-T02 | **Verify model availability & benchmark candidates** | T01 | Every candidate model's free status, context, tool support and structured-output support verified empirically. Results in `docs/benchmarks/`. ADR recorded. | ◐ Documented limits verified (ADR-009). **Empirical verification blocked on API keys** |
+| P1-T02 | **Verify model availability & benchmark candidates** | T01 | Every candidate model's free status, context, tool support and structured-output support verified empirically. Results in `docs/benchmarks/`. ADR recorded. | ☑ Groq tool calling + JSON mode verified; reasoning-token behaviour measured. ADR-020. |
 | P1-T03 | Module-boundary lint rule | T01 | Importing `modules/x/repo` from `modules/y` fails CI | ☑ Verified firing: model-name rule + core-purity rule both reject a probe file |
 | P1-T04 | `packages/contracts` — core Zod schemas | T01 | Memory, character, world, message, AI request/response schemas | ☑ Branded ids, memory, ai, character, world |
-| P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ⊘ **Blocked: needs `GROQ_API_KEY`** |
+| P1-T05 | `AIProvider` interface + first real provider | T04 | A real generation completes; tokens and latency recorded | ☑ GroqProvider: tool calls, JSON mode, 8K pre-flight, reasoning capture |
 | P1-T06 | **Mock provider** (deterministic, failure injection) | T05 | `MOCK_AI=true` produces schema-valid dialogue, extraction, planning; can inject 429/timeout/malformed | ☑ 36 tests. Parses its own prompt, so a dropped memory is detectable. Extraction output validated against the real `ExtractionResultSchema`. |
-| P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ⊘ **Blocked: needs `CF_ACCOUNT_ID` + `CF_API_TOKEN`** |
+| P1-T07 | `EmbeddingProvider` interface + first provider | T04 | 768-dim embeddings; batching; content-hash cache | ☑ Cloudflare bge-base-en-v1.5, 768-dim, content-hash cache, dimension guard |
 | P1-T08 | Crude memory loop (in-memory store) | T05, T07 | retrieve → prompt → generate → extract → store runs from a script | ☑ `pnpm lab`. Ravenhold recall@k 3/3. Four bugs found and fixed by running it. |
 | P1-T09 | Ranking formula in `packages/core/memory` | T08 | Pure functions; unit tested; weights in a named, versioned module | ☑ Scoring, RRF, MMR, budget packing. Weights versioned in `weights.ts` |
 | P1-T10 | Extraction prompt v1 + Zod validation + repair path | T06 | Malformed output triggers one repair, then a clean drop; nothing invalid stored | ☑ `extract/v1` + tolerant parse (fence strip, balanced-object scan) + one repair |
@@ -53,7 +53,8 @@
 | P1-T12 | Four canonical test worlds as seed fixtures | T04 | Ravenhold, Kapoor House, Mars Colony, Ashford — deterministic, committed | ☑ With planted facts and secret-probe ladders for suite 4 |
 | P1-T18 | **Knowledge isolation regression suite** *(added)* | T08 | A restricted memory is absent from another character's retrieved set across every probe phrasing | ☑ 11 tests, leak rate 0 |
 | P1-T13 | Eval harness runner | T12 | `pnpm eval <suite>` runs, scores, writes dated JSON to `docs/benchmarks/` | ☐ |
-| P1-T14 | Eval suite 1 — memory recall | T13 | 20 facts, 100 turns, probes at 30/60/100 + fresh session | ☐ |
+| P1-T14 | Eval suite 1 — memory recall | T13 | 20 facts, 100 turns, probes at 30/60/100 + fresh session | ☐ **NOW BLOCKING THE GATE.** The 11-fact fixture gives 9 points of resolution per fact; an 85% threshold is unmeasurable with it. Observed spread 73–100% over 7 runs. |
+| P1-T19 | Extraction gate: fire on interrogatives *(added)* | — | A question the player asks that establishes a fact triggers extraction. Ashford stores 1 memory from 6 turns because its facts live in questions. | ☐ |
 | P1-T15 | Eval suite 3 — character consistency | T13 | LLM judge with a fixed rubric, 3 samples, median | ☐ |
 | P1-T16 | Populate the model benchmark table | T02, T14, T15 | ≥ 2 viable models per tier, with recorded quality scores | ☐ |
 | P1-T17 | Start the 30-day continuously-played world | T08 | A world exists and is played a few turns most days from here on | ☐ |

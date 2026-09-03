@@ -45,6 +45,53 @@ read character lines too.
 
 ## Session log
 
+### 2026-09-04 — Phase 1 gate run: MARGINAL, and the instrument is the problem
+
+**Done** — P1-T02 ☑ · P1-T05 ☑ · P1-T07 ☑ · full gate runner built and run 7×.
+
+**Result: recall@k median 91%, range 73–100% across 7 runs.** Four of seven clear
+the 85% gate. Full numbers: [gate benchmark](../docs/benchmarks/2026-09-04-phase1-gate.md).
+
+**I am not calling this a pass**, and the reason matters more than the number.
+The fixture has 11 planted facts, so one fact flipping moves the score 9 points.
+A threshold at 85% cannot be resolved by an instrument whose smallest increment
+is 9 points — the 27-point spread is exactly what that looks like. docs/15 § 3
+specifies suite 1 as 20 facts across 100 turns; what exists is 11 across 39.
+Reporting the median of a noisy instrument as a measurement would be the wrong
+call, and tuning extraction until a small sample lands above the line would be
+worse.
+
+**Learned:**
+
+1. **Reasoning tokens are 95–97% of content output.** They roughly double the
+   cost of a generation. Any capacity number that ignores them is wrong by about
+   2×.
+
+2. **Requests bind before tokens, by a wide margin.** The token pool supports
+   ~175 turns/min; the request pool allows 13.5 sustained. So *calls per turn* is
+   the economic lever, not context size — which inverts the premise of ADR-012.
+   Measured capacity: **~18,900 turns/day, ~975 DAU at 20 turns each.**
+
+3. **The extraction gate saves 36% of turns** outright. Largest single cost
+   reduction in the system, and it is free deterministic code.
+
+4. **The 8K ceiling is not currently binding** — largest observed request was
+   1,325 tokens against a ceiling of 8,000.
+
+5. **Temperature was not the variance.** Setting extraction to 0 changed the
+   distribution but not the spread (82/91/82 vs 73/100/100/91). Kept at 0 anyway
+   because extraction is transcription.
+
+6. **Ashford stores 1 memory from 6 turns, every run.** Its facts live inside
+   questions the player asks, and the gate's signals do not fire on
+   interrogatives. Real gap: in a mystery, what the player asks IS the fact.
+
+7. Latency is genuinely good — dialogue p50 ~660 ms, p95 ~1.1 s.
+
+**Next** — build suite 1 properly (P1-T14) before re-testing the gate. Do not
+buy the OpenRouter credit, add providers, or start Phase 2 until the gate is
+measurable.
+
 ### 2026-09-03 (3) — The memory loop runs
 
 **Done** — P1-T08 ☑ · P1-T10 ☑ · P1-T11 ☑ · P1-T12 ☑ · P1-T18 ☑ (new)

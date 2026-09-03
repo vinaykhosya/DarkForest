@@ -18,6 +18,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "lab": "tsx packages/evals/src/cli.ts",
     "eval": "tsx packages/evals/src/run.ts",
+    "gate": "tsx packages/evals/src/gate.ts",
     "embed:compare": "tsx packages/evals/src/embed-compare.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:snapshot": "tsx scripts/snapshot.ts",

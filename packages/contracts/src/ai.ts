@@ -106,7 +106,18 @@ export interface GenerateResponse {
   text: string;
   toolCalls: ToolCall[];
   finishReason: "stop" | "length" | "tool_calls" | "content_filter" | "error";
-  usage: { inputTokens: number; outputTokens: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    /**
+     * Tokens the model spent thinking before producing content.
+     *
+     * Counted here because on reasoning models they are NOT free: they consume
+     * max_tokens and the provider's per-minute token budget exactly like output
+     * tokens do. Capacity planning that ignores them overstates throughput.
+     */
+    reasoningTokens?: number;
+  };
   model: string;
   provider: string;
   tier: ModelTier;

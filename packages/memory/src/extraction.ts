@@ -49,10 +49,25 @@ export interface ExtractionInput {
   presentCharacterIds?: readonly CharacterId[];
 }
 
+/** Per-call accounting, so callers can measure what extraction actually costs. */
+export interface ExtractionUsage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  latencyMs: number;
+}
+
 export interface ExtractionOutcome {
   gate: GateResult;
   /** True when the gate declined and no inference was spent. */
   skipped: boolean;
+  /**
+   * What this extraction cost. Returned rather than swallowed because
+   * extraction is roughly 40% of all model calls, and capacity measured from
+   * dialogue alone understates load by that much.
+   */
+  usage: ExtractionUsage;
   stored: Memory[];
   merged: Array<{ existing: Memory; similarity: number }>;
   rejected: Array<{ reason: string; detail: string }>;
@@ -101,10 +116,30 @@ export async function extractMemories(
   };
   const gate = shouldExtract(gateInput);
 
+  const usage: ExtractionUsage = {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    latencyMs: 0,
+  };
+
+  const account = (r: {
+    usage: { inputTokens: number; outputTokens: number; reasoningTokens?: number };
+    latencyMs: number;
+  }): void => {
+    usage.calls += 1;
+    usage.inputTokens += r.usage.inputTokens;
+    usage.outputTokens += r.usage.outputTokens;
+    usage.reasoningTokens += r.usage.reasoningTokens ?? 0;
+    usage.latencyMs += r.latencyMs;
+  };
+
   if (!gate.shouldExtract) {
     return {
       gate,
       skipped: true,
+      usage,
       stored: [],
       merged: [],
       rejected: [],
@@ -132,13 +167,21 @@ export async function extractMemories(
       system: prompt.system,
       messages: [{ role: "user", content: prompt.user }],
       maxTokens: 900,
-      // Low temperature: extraction is transcription, not invention.
-      temperature: 0.1,
+      /*
+       * ZERO, not 0.1. Extraction is transcription, not invention.
+       *
+       * Measured across four gate runs at 0.1: recall@k came out 73%, 100%,
+       * 100%, 91%. The same transcript produced different memories run to run,
+       * and the 73% case fell below the 85% gate. A sampling temperature on a
+       * task with one correct answer buys nothing and costs reproducibility.
+       */
+      temperature: 0,
       timeoutMs: 20_000,
       meta: { requestId: `extract-${input.worldId}-${String(input.worldDay)}` },
     },
     model,
   );
+  account(raw);
 
   parsed = tryParse(raw.text);
 
@@ -158,6 +201,7 @@ export async function extractMemories(
       },
       model,
     );
+    account(repaired);
     parsed = tryParse(repaired.text);
   }
 
@@ -169,6 +213,7 @@ export async function extractMemories(
     return {
       gate,
       skipped: false,
+      usage,
       stored: [],
       merged: [],
       rejected,
@@ -261,6 +306,7 @@ export async function extractMemories(
   return {
     gate,
     skipped: false,
+    usage,
     stored,
     merged,
     rejected,

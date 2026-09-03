@@ -29,4 +29,5 @@ export {
   extractMemories,
   type ExtractionInput,
   type ExtractionOutcome,
+  type ExtractionUsage,
 } from "./extraction.js";

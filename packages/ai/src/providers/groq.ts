@@ -106,6 +106,8 @@ export interface GroqConfig {
 interface GroqChoice {
   message?: {
     content?: string | null;
+    /** Present on reasoning models. Billed against output and TPM. */
+    reasoning?: string | null;
     tool_calls?: Array<{ id: string; function?: { name?: string; arguments?: string } }>;
   };
   finish_reason?: string;
@@ -254,13 +256,19 @@ export class GroqProvider implements AIProvider {
     const inputTokens = usage.prompt_tokens ?? estimated;
     const outputTokens = usage.completion_tokens ?? 0;
 
+    // Groq folds reasoning into completion_tokens but does not break it out, so
+    // estimate from the returned text. Approximate, but it is the only way to
+    // see what share of the output budget thinking consumed.
+    const reasoningText = choice?.message?.reasoning ?? "";
+    const reasoningTokens = Math.ceil(reasoningText.length / 3.6);
+
     this.config.onSuccess?.(credential.id, inputTokens + outputTokens);
 
     return {
       text: choice?.message?.content ?? "",
       toolCalls: this.parseToolCalls(choice),
       finishReason: this.mapFinishReason(choice?.finish_reason),
-      usage: { inputTokens, outputTokens },
+      usage: { inputTokens, outputTokens, reasoningTokens },
       model: model.id,
       provider: this.id,
       tier: TASK_TIER[req.taskClass],
