@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# Secrets — see docs/12-security.md § 2. NOTHING in here is ever committed.
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+
+# Test & eval artifacts
+coverage/
+.vitest/
+docs/benchmarks/runs/
+
+# Local database
+.pgdata/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
