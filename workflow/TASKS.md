@@ -320,6 +320,15 @@ Detailed tasks are written when the phase is entered. Writing them now would be 
 
 ---
 
+## Unscheduled — raised, not yet placed in a phase
+
+| ID | Task | Why it is not scheduled | Status |
+|---|---|---|---|
+| P-NEW-01 | **Web search (Tavily)** — decide whether it belongs in the product at all | Credentials are stored, but web search is in **no specification**. It raises real questions before any code: (1) it sends user text to a third party whose terms we have not reviewed against [12](../docs/12-security.md) § 7 and ADR-014 — a search query derived from a private roleplay is still user content; (2) it is a new per-turn cost outside the compute-unit model in [14](../docs/14-billing-and-entitlements.md); (3) what is it *for*? Persistent fiction rarely needs live facts, so the use case has to be named before the feature can be justified under [01](../docs/01-principles-and-constraints.md) § Part D. Needs an ADR. | ☐ blocked on a product decision |
+| P-NEW-02 | Rotate the Supabase database password and service-role key | Both were transmitted in plaintext; the password also embeds a personal phone number. Not urgent while the project is empty, but must happen before Phase 2 writes anything real. | ☐ before P2-T01 |
+
+---
+
 ## Cross-cutting, continuous
 
 | ID | Task | Cadence |
