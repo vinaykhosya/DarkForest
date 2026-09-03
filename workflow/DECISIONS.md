@@ -222,6 +222,110 @@ Revisit   — the condition that should make us reconsider
 
 ---
 
+### ADR-013 — NVIDIA NIM is development-only, on contractual grounds
+**2026-09-03 · Accepted · Verified against the primary source, not summaries**
+
+**Context.** We evaluated serving free-tier users from NVIDIA's free NIM API with a disclosure notice. The founder set a blocking condition: verify whether NVIDIA's terms permit production SaaS use *before* changing provider policy.
+
+**Finding.** The [NVIDIA API Trial Terms of Service](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf), read directly:
+
+- **§1.2** — "NVIDIA will provide you access to the API Service for limited trial purposes only and **without use of the API Service or Generated Content in production**."
+- **§1.4** — "You must purchase a separate service subscription … to use the API Service in production … Unless you purchase a Subscription …, you may only use the API Service for **internal testing and evaluation purposes, not in production**."
+- NVIDIA defines production as "any non-testing activity **including activity serving real end-users**."
+- **§2.6(a)** — "**you agree you will not** … include any confidential information, controlled or sensitive data, including … **personal data**."
+- **§3.3** — NVIDIA collects "User Content and Generated Content **to improve NVIDIA products and services, including AI models**."
+- **§2.6(d)** — content must not be "defamatory, obscene, pornographic, vulgar or **offensive**."
+- **§1.3** — pre-release services are "not intended for use in production or business-critical systems."
+
+**Decision.** NVIDIA NIM is a **development-only** provider. It may be used for benchmarking and evaluation against synthetic data, from the local environment only. It is never reachable by end-user traffic.
+
+**Why a disclaimer cannot fix this — the load-bearing point.** §2.6(a) is an obligation **we** accept when we accept the ToS. Our users are not party to that agreement. If a user enters personal data and we forward it, **we** are the party in breach — a user cannot breach a contract they never signed, and cannot waive an obligation they do not hold. Consent flows in the wrong direction for the disclaimer to do any work here.
+
+Separately, §1.2 and §1.4 are not a privacy matter at all: they are a scope-of-licence restriction. No amount of user consent grants us a licence NVIDIA has not granted.
+
+**Trade-off.** We lose a large free capacity pool. This is genuinely costly for beta scale. Mitigated by ADR-011 and ADR-014.
+
+**Note.** Even setting terms aside, NVIDIA's 40 RPM would not serve 100 concurrent users, so this does not forfeit a solution to the scaling problem — it removes an option that was not one.
+
+**Revisit.** If NVIDIA introduces a free or low-cost tier that explicitly permits production use. The AI Enterprise path (~$4,500/GPU/year) is out of scope until well past the self-hosting trigger.
+
+---
+
+### ADR-014 — Inference pools, not tier-to-provider mapping
+**2026-09-03 · Accepted · Refines ADR-009**
+
+**Context.** ADR-009 was drifting toward statements of the form "free tier = provider X". That shape converts any provider's terms change into a product outage and a business-logic rewrite.
+
+**Decision.** Plans select a **pool**; the router decides which provider currently serves it.
+
+| Pool | Admission criteria | Serves |
+|---|---|---|
+| `private` | Terms permit production **and** provider does not train on input | Paid tiers; any world marked Private |
+| `standard` | Terms permit production; may train on input (disclosed) | Free tier; Standard worlds |
+| `development` | Everything, including terms-restricted providers | Benchmarks and evals, local + synthetic only |
+
+Pool membership is **derived from policy, never hand-set** (`poolsFor()` in `@darkforest/contracts`). Making the two independently editable is precisely how a development-only model eventually ends up serving a paying customer.
+
+**Enforcement is code, not documentation.** `checkPoolEligibility()` in `@darkforest/core` gates every routing decision, fails closed when the synthetic-content flag is omitted, and cites the governing clause in its rejection. 19 tests encode the three real provider cases.
+
+**Trade-off.** More machinery than a lookup table, and every new provider needs its terms read and recorded before it can be used. That reading is the point.
+
+**Revisit.** Never as a shape. Pool membership changes constantly; that is the design working.
+
+---
+
+### ADR-015 — Private World / Standard World as a user-facing choice
+**2026-09-03 · Accepted · Phase 12+**
+
+**Context.** With two production-eligible pools of differing privacy properties, the difference can be a product feature rather than a hidden implementation detail.
+
+**Decision.** A world carries an inference-pool preference the user sets at creation and can change:
+
+> **🟢 Private World** — routed only through providers contractually barred from training on your content.
+>
+> **🔵 Standard World** — routed through the most cost-efficient available providers. Your conversations may be used by those providers to improve their models. Don't enter real personal information.
+
+**Rules:**
+1. Consent attaches to the **pool property**, not to a named provider — provider sets change, and re-consenting every user on each change is unworkable. The user agrees to "may be used to improve their models," which stays true whoever serves.
+2. Standard requires **explicit opt-in**, recorded with a timestamp and the disclosure version shown.
+3. A Private world **never** falls back to a Standard provider. If the private pool is exhausted it queues or degrades ([16](../docs/16-observability-and-ops.md) § Degradation Ladder) — silently downgrading privacy is the worst possible failure mode.
+4. Memory, world state and relationships are **DarkForest's data** throughout. Providers receive only the minimum context for one generation, never the corpus. This is a privacy property of the context builder, not only a cost optimisation.
+
+**Trade-off.** A second routing path to test and a genuine possibility of user confusion. Mitigated by making Private the default for paid tiers and stating the difference in one sentence, not a policy page.
+
+---
+
+### ADR-016 — Gate LLM memory extraction behind a deterministic classifier
+**2026-09-03 · Accepted · Amends [04](../docs/04-memory-engine.md) § 4**
+
+**Context.** As specified, extraction ran an LLM call over a rolling window after every turn. Against Groq's 200K tokens/day cap that is a meaningful share of total capacity spent deciding that nothing happened.
+
+**Decision.** A cheap deterministic pre-filter runs first and only escalates when it fires:
+
+```
+turn committed
+      ↓
+deterministic signals  (free, ~0 ms)
+  · first mention of a named entity in this world
+  · commissive verbs — promise, swear, vow, agree, refuse
+  · irreversible events — death, betrayal, departure, gift, reveal
+  · a validated tool call already fired this turn
+  · relationship delta applied by a deterministic rule
+  · explicit user preference statement
+  · N turns since last extraction (floor, so slow scenes still get captured)
+      ↓
+  none fired → skip. No LLM call. No memory.
+  any fired  → enqueue LLM extraction over the rolling window
+```
+
+**Rationale.** Most turns genuinely contain nothing worth remembering — [04](../docs/04-memory-engine.md) § 4 already targets ≤3 memories per 10 turns. Paying an LLM call to confirm that, on every turn, is the clearest instance of violating [01](../docs/01-principles-and-constraints.md) § P4 in the whole design.
+
+**Trade-off.** The pre-filter will miss some subtle memories the LLM would have caught. Mitigated by the turn-count floor, and measured directly: eval suite 1 recall must not drop when the gate is enabled. **If recall falls more than 2 points, the gate is wrong and comes out.**
+
+**Revisit.** After suite 1 runs with and without the gate. This decision is explicitly provisional pending that measurement.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

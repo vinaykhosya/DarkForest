@@ -123,10 +123,72 @@ export type StreamChunk =
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
+/**
+ * Inference pools — ADR-014.
+ *
+ * Tiers do NOT map to providers. A plan selects a POOL; the router decides which
+ * provider currently serves it. "Free tier = NVIDIA" is the shape of statement
+ * that turns a provider's terms change into a product outage; "free tier =
+ * standard pool" does not.
+ */
+export const InferencePoolSchema = z.enum([
+  /** Providers whose terms permit production AND who do not train on input. */
+  "private",
+  /** Providers whose terms permit production. May train on input — disclosed to the user. */
+  "standard",
+  /** Evaluation/benchmarking only. NEVER reachable by end-user traffic. */
+  "development",
+]);
+export type InferencePool = z.infer<typeof InferencePoolSchema>;
+
+/**
+ * Whether a provider's TERMS permit us to serve real end users through DarkForest.
+ *
+ * This is a contractual question, entirely separate from privacy. A provider can
+ * be privacy-clean and still forbid production use (or vice versa). Both are
+ * checked independently — see ADR-013 for the case that forced the distinction.
+ */
+export type TermsEligibility =
+  /** Terms explicitly permit embedding in a customer application serving end users. */
+  | "production"
+  /** Terms restrict use to internal testing/evaluation. Hard-blocked outside local dev. */
+  | "development_only";
+
+/**
+ * The compliance facts about a model, recorded as DATA so the router can enforce
+ * them rather than relying on a developer remembering. Every field must be
+ * traceable to a cited clause — see `source`.
+ */
+export interface ModelPolicy {
+  eligibility: TermsEligibility;
+  /** Does the provider use submitted content to train or improve models? */
+  trainsOnInput: boolean;
+  /**
+   * Does the provider's contract oblige US not to submit personal data?
+   *
+   * This is the field people get wrong. It is an obligation WE owe the provider.
+   * Our users are not party to that agreement, so no disclaimer we show them can
+   * discharge it — if a user types personal data and we forward it, we are the
+   * party in breach.
+   */
+  forbidsPersonalData: boolean;
+  /** Maximum retention of inputs/outputs in days. 0 = not retained by default. */
+  retentionDays: number;
+  /** Content restrictions in the provider's terms that could affect roleplay. */
+  contentRestrictions?: string;
+  /** Citation, so every claim above is auditable rather than remembered. */
+  source: string;
+  /** Terms change. An unverified-in-6-months entry is a stale entry. */
+  verifiedOn: string;
+}
+
 export interface ModelDescriptor {
   /** Provider-native id. The ONLY place a model string may appear is the registry. */
   id: string;
   tier: ModelTier;
+  /** Which pools this model may serve. Derived from `policy`, never hand-set. */
+  pools: readonly InferencePool[];
+  policy: ModelPolicy;
   contextWindow: number;
   maxOutput: number;
   supportsTools: boolean;
@@ -136,14 +198,20 @@ export interface ModelDescriptor {
   costPerMTokIn: number;
   costPerMTokOut: number;
   isFree: boolean;
-  /**
-   * ADR-009: providers that train on submitted content are development-only.
-   * The router refuses to route real user content to a model where this is false.
-   */
-  privacySafe: boolean;
   rateLimit?: { rpm?: number; rpd?: number; tpm?: number; tpd?: number };
   /** From our own eval suite (docs/15 § 4). Undefined = not yet benchmarked = not routable. */
   qualityScore?: number;
+}
+
+/**
+ * Derives pool membership from policy. Single source of truth: a model's pools
+ * are a FUNCTION of its terms, never an independently editable field. Making
+ * these separately settable is how a development-only model eventually ends up
+ * serving a paying customer.
+ */
+export function poolsFor(policy: ModelPolicy): InferencePool[] {
+  if (policy.eligibility === "development_only") return ["development"];
+  return policy.trainsOnInput ? ["standard", "development"] : ["private", "standard", "development"];
 }
 
 export type BreakerState = "closed" | "open" | "half_open";
@@ -169,7 +237,8 @@ export interface EmbeddingProvider {
   readonly id: string;
   readonly dimensions: number;
   readonly version: number;
-  readonly privacySafe: boolean;
+  /** Embeddings are derived from user content, so the same policy gate applies. */
+  readonly policy: ModelPolicy;
   embed(texts: string[]): Promise<Float32Array[]>;
 }
 
