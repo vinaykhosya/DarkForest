@@ -13,7 +13,7 @@
  * is precisely the "I came back a week later and it remembered" moment.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { CloudflareEmbeddingProvider, CredentialRegistry, GroqProvider } from "@darkforest/ai";
 import { AIError } from "@darkforest/contracts";
 import type { EmbeddingProvider, ModelDescriptor, WorldState } from "@darkforest/contracts";
@@ -361,11 +361,53 @@ async function main(): Promise<void> {
   console.log(`facts ${String(SUITE1.facts.length)} · turns ${String(SUITE1.script.length)} · checkpoints 30/60/100 + fresh · reps ${String(reps)}`);
   console.log(`model ${model.id} · embeddings ${embedder.id}\n`);
 
+  /*
+   * Results are written to disk after EVERY repetition, not at the end.
+   *
+   * A previous run was killed mid-flight and produced nothing at all — 20
+   * minutes of real API calls with no record. docs/15 § 7 asks for dated JSON
+   * so trends survive; this also means an interrupted run still yields whatever
+   * repetitions completed.
+   */
+  const stamp = new Date().toISOString().slice(0, 10);
+  const outDir = "docs/benchmarks/runs";
+  mkdirSync(outDir, { recursive: true });
+  const outFile = `${outDir}/${stamp}-suite1.json`;
+
   const results: RunResult[] = [];
   for (let r = 1; r <= reps; r++) {
     process.stdout.write(`  run ${String(r)}/${String(reps)}  `);
     results.push(await runOnce(r, provider, model, embedder));
     const last = results[results.length - 1]!;
+    writeFileSync(
+      outFile,
+      JSON.stringify(
+        {
+          suite: "suite1",
+          date: stamp,
+          model: model.id,
+          embedder: embedder.id,
+          facts: SUITE1.facts.length,
+          turns: SUITE1.script.length,
+          completedReps: results.length,
+          plannedReps: reps,
+          runs: results.map((x) => ({
+            run: x.run,
+            recall: x.overallRecall,
+            byCheckpoint: x.recallByCheckpoint,
+            memoriesStored: x.memoriesStored,
+            gateSkipped: x.gateSkipped,
+            calls: x.calls,
+            failures: x.failures,
+            wallClockMs: x.wallClockMs,
+            probes: x.probes,
+          })),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
     console.log(
       `    → recall ${(last.overallRecall * 100).toFixed(0)}%  ` +
         `memories ${String(last.memoriesStored)}  gate-skipped ${String(last.gateSkipped)}/${String(last.turns)}  ` +
