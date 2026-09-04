@@ -60,7 +60,12 @@ const MODELS: OpenRouterModelSpec[] = [
 const STRUCTURED_TASKS = new Set(["extract", "plan", "classify", "moderate", "inject_scan", "consolidate"]);
 
 export interface OpenRouterConfig {
-  getCredential: (estimatedTokens: number) => { id: string; key: string } | null;
+  /**
+   * `modelId` is passed for symmetry with per-model-metered providers. For
+   * OpenRouter the registry ignores it: the 50/day free allowance is
+   * account-wide, so narrowing by model would invent capacity (ADR-021).
+   */
+  getCredential: (estimatedTokens: number, modelId: string) => { id: string; key: string } | null;
   onSuccess?: (credentialId: string, tokens: number) => void;
   onRateLimited?: (credentialId: string, retryAfterMs: number | undefined) => void;
   onRejected?: (credentialId: string, reason: string) => void;
@@ -125,7 +130,7 @@ export class OpenRouterProvider implements AIProvider {
 
   async generate(req: GenerateRequest, model: ModelDescriptor): Promise<GenerateResponse> {
     const estimated = this.estimateTokens(req);
-    const credential = this.config.getCredential(estimated);
+    const credential = this.config.getCredential(estimated, model.id);
     if (!credential) {
       throw new AIError("BUDGET_EXCEEDED", "No OpenRouter credential available", model.id);
     }

@@ -8,8 +8,15 @@
  * actually experiences.
  *
  * P1-T24: Multi-provider candidate pools with explicit fallback tracking and
- * granular telemetry (Groq primary -> OpenRouter failover). Distinguishes
- * RATE_LIMITED, BUDGET_EXCEEDED, NO_CREDENTIAL, and PROVIDER_ERROR.
+ * granular telemetry. Distinguishes RATE_LIMITED, BUDGET_EXCEEDED,
+ * NO_CREDENTIAL, and PROVIDER_ERROR.
+ *
+ * P1-T25 (ADR-021): routing goes through the CAPACITY SCHEDULER rather than a
+ * Groq-primary/OpenRouter-fallback chain. The previous wiring pinned one Groq
+ * model for every call and acquired credentials without naming it, so it used 8
+ * of Groq's 32 buckets and mis-attributed the ones it used. Runs were partly
+ * measuring the rate limiter: run 3 scored 70% against 91% and 84% with six
+ * rate-limit retries and Groq down to 2/8 credentials.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,17 +27,12 @@ import {
   OpenRouterProvider,
 } from "@darkforest/ai";
 import { AIError } from "@darkforest/contracts";
-import type {
-  AIProvider,
-  EmbeddingProvider,
-  FallbackReason,
-  GenerateRequest,
-  GenerateResponse,
-  ModelDescriptor,
-  ProviderHealth,
-  StreamChunk,
-  WorldState,
-} from "@darkforest/contracts";
+import type { EmbeddingProvider, WorldState } from "@darkforest/contracts";
+import {
+  SchedulerRouter,
+  type ProviderUsageMetrics,
+  type RoutingAttempt,
+} from "./scheduler-router.js";
 import { COMPACT_PROFILE } from "@darkforest/core";
 import { InMemoryMemoryStore, extractMemories, retrieve, __resetMemoryIds } from "@darkforest/memory";
 import { renderDialoguePrompt } from "@darkforest/prompts";
@@ -40,30 +42,6 @@ interface ProbeOutcome {
   factId: string;
   checkpoint: string;
   recalled: boolean;
-}
-
-interface ProviderCandidate {
-  providerId: "groq" | "openrouter";
-  provider: AIProvider;
-  model: ModelDescriptor;
-}
-
-interface FallbackRecord {
-  run: number;
-  turnIndex: number;
-  taskClass: "dialogue" | "extract";
-  fallbackFrom: string;
-  fallbackTo: string;
-  fallbackReason: FallbackReason;
-  attempt: number;
-  detail?: string;
-}
-
-interface ProviderUsageMetrics {
-  dialogueCalls: number;
-  dialogueTokens: number;
-  extractCalls: number;
-  extractTokens: number;
 }
 
 interface RunResult {
@@ -79,7 +57,10 @@ interface RunResult {
   extractionDrops: number;
   wallClockMs: number;
   providerUsage: Record<string, ProviderUsageMetrics>;
-  fallbacks: FallbackRecord[];
+  /** Every routing attempt, including the ones that were rerouted. */
+  attempts: RoutingAttempt[];
+  /** Distinct capacity buckets that carried load. 1 = single point of failure. */
+  bucketsUsed: number;
 }
 
 function loadEnv(): Record<string, string> {
@@ -118,144 +99,9 @@ function median(xs: number[]): number {
   return s.length % 2 === 0 ? ((s[mid - 1] ?? 0) + (s[mid] ?? 0)) / 2 : (s[mid] ?? 0);
 }
 
-class MultiProviderRouter implements AIProvider {
-  readonly id = "router";
-  readonly enabled = true;
-  readonly models: readonly ModelDescriptor[];
-
-  currentRun = 1;
-  currentTurn = 0;
-  readonly fallbacks: FallbackRecord[] = [];
-  readonly usageByProvider: Record<string, ProviderUsageMetrics> = {};
-
-  constructor(
-    private readonly pools: {
-      dialogue: ProviderCandidate[];
-      extract: ProviderCandidate[];
-    },
-  ) {
-    this.models = [
-      ...pools.dialogue.map((c) => c.model),
-      ...pools.extract.map((c) => c.model),
-    ];
-    for (const pool of Object.values(pools)) {
-      for (const c of pool) {
-        if (!this.usageByProvider[c.providerId]) {
-          this.usageByProvider[c.providerId] = {
-            dialogueCalls: 0,
-            dialogueTokens: 0,
-            extractCalls: 0,
-            extractTokens: 0,
-          };
-        }
-      }
-    }
-  }
-
-  health(): ProviderHealth {
-    return {
-      state: "closed",
-      recentFailures: 0,
-      recentRequests: 0,
-      lastFailureAt: null,
-      cooldownUntil: null,
-    };
-  }
-
-  async generate(req: GenerateRequest, _model: ModelDescriptor): Promise<GenerateResponse> {
-    const taskClass = req.taskClass === "extract" ? "extract" : "dialogue";
-    const candidates = this.pools[taskClass];
-    let lastError: unknown = null;
-    let fallbackFrom: string | null = null;
-    let fallbackReason: FallbackReason | null = null;
-
-    for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
-      const candidate = candidates[cIdx]!;
-
-      if (cIdx > 0 && fallbackFrom && fallbackReason) {
-        const ev: FallbackRecord = {
-          run: this.currentRun,
-          turnIndex: this.currentTurn,
-          taskClass,
-          fallbackFrom,
-          fallbackTo: candidate.providerId,
-          fallbackReason,
-          attempt: cIdx + 1,
-          detail: lastError instanceof Error ? lastError.message.slice(0, 120) : String(lastError),
-        };
-        this.fallbacks.push(ev);
-        process.stdout.write(
-          `\n        [FAILOVER] turn ${String(this.currentTurn)} ${taskClass}: ${ev.fallbackFrom} → ${ev.fallbackTo} (${ev.fallbackReason}) `,
-        );
-      }
-
-      const maxAttempts = candidate.providerId === "groq" ? 2 : 1;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const res = await candidate.provider.generate(req, candidate.model);
-          const totalTokens =
-            res.usage.inputTokens + res.usage.outputTokens + (res.usage.reasoningTokens ?? 0);
-          const stats = (this.usageByProvider[candidate.providerId] ??= {
-            dialogueCalls: 0,
-            dialogueTokens: 0,
-            extractCalls: 0,
-            extractTokens: 0,
-          });
-          if (taskClass === "extract") {
-            stats.extractCalls += 1;
-            stats.extractTokens += totalTokens;
-          } else {
-            stats.dialogueCalls += 1;
-            stats.dialogueTokens += totalTokens;
-          }
-
-          if (fallbackFrom) {
-            return {
-              ...res,
-              fallbackFrom,
-              fallbackReason,
-            };
-          }
-          return res;
-        } catch (e) {
-          lastError = e;
-          const isRateLimit = e instanceof AIError && e.code === "RATE_LIMITED";
-          const isBudgetExceeded = e instanceof AIError && e.code === "BUDGET_EXCEEDED";
-          const isNoCred = e instanceof AIError && e.code === "AUTH_FAILED";
-
-          if (isRateLimit) fallbackReason = "RATE_LIMITED";
-          else if (isBudgetExceeded) fallbackReason = "BUDGET_EXCEEDED";
-          else if (isNoCred) fallbackReason = "NO_CREDENTIAL";
-          else fallbackReason = "PROVIDER_ERROR";
-
-          if ((isRateLimit || isBudgetExceeded) && attempt < maxAttempts - 1) {
-            await sleep(3000);
-            continue;
-          }
-
-          fallbackFrom = candidate.providerId;
-          break;
-        }
-      }
-    }
-
-    if (lastError instanceof Error) throw lastError;
-    throw new Error(`All provider candidates exhausted for ${taskClass}`);
-  }
-
-  async *stream(req: GenerateRequest, model: ModelDescriptor): AsyncGenerator<StreamChunk, void> {
-    const res = await this.generate(req, model);
-    yield { type: "text", delta: res.text };
-    for (const call of res.toolCalls) {
-      yield { type: "tool_call", call };
-    }
-    yield { type: "done", response: res };
-  }
-}
-
 async function runOnce(
   runIndex: number,
-  router: MultiProviderRouter,
+  router: SchedulerRouter,
   embedder: EmbeddingProvider,
 ): Promise<RunResult> {
   __resetMemoryIds();
@@ -264,7 +110,7 @@ async function runOnce(
   const transcript: Array<{ speaker: string; content: string }> = [];
 
   router.currentRun = runIndex;
-  const initialFallbackCount = router.fallbacks.length;
+  const initialAttemptCount = router.attempts.length;
   const initialProviderUsage = JSON.parse(
     JSON.stringify(router.usageByProvider),
   ) as Record<string, ProviderUsageMetrics>;
@@ -468,7 +314,7 @@ async function runOnce(
     );
   }
 
-  const runFallbacks = router.fallbacks.slice(initialFallbackCount);
+  const runAttempts = router.attempts.slice(initialAttemptCount);
   const runUsageDelta: Record<string, ProviderUsageMetrics> = {};
   for (const [pId, usage] of Object.entries(router.usageByProvider)) {
     const init = initialProviderUsage[pId] ?? {
@@ -498,7 +344,8 @@ async function runOnce(
     extractionDrops,
     wallClockMs: Date.now() - started,
     providerUsage: runUsageDelta,
-    fallbacks: runFallbacks,
+    attempts: runAttempts,
+    bucketsUsed: new Set(runAttempts.filter((a) => a.status === "ok").map((a) => a.bucketId)).size,
   };
 }
 
@@ -507,8 +354,10 @@ async function main(): Promise<void> {
   const registry = new CredentialRegistry(env);
 
   const groq = new GroqProvider({
-    getCredential: (est) => {
-      const g = registry.acquire("groq", est);
+    getCredential: (est, modelId) => {
+      // modelId is essential, not decorative: Groq meters per model, so
+      // omitting it can debit a bucket metering a DIFFERENT model's budget.
+      const g = registry.acquire("groq", est, Date.now(), modelId);
       return g.ok ? { id: g.id, key: g.key } : null;
     },
     onSuccess: (id, t) => {
@@ -526,8 +375,8 @@ async function main(): Promise<void> {
   });
 
   const openrouter = new OpenRouterProvider({
-    getCredential: (est) => {
-      const g = registry.acquire("openrouter", est);
+    getCredential: (est, modelId) => {
+      const g = registry.acquire("openrouter", est, Date.now(), modelId);
       return g.ok ? { id: g.id, key: g.key } : null;
     },
     onSuccess: (id, t) => {
@@ -555,19 +404,26 @@ async function main(): Promise<void> {
     },
   });
 
-  const groqFast = groq.models.find((m) => m.tier === "fast") ?? groq.models[0]!;
-  const openrouterFast =
-    openrouter.models.find((m) => m.tier === "fast") ?? openrouter.models[0]!;
+  /*
+   * No primary/fallback pair any more. The scheduler picks a bucket per request
+   * from every wired provider, so all four Groq models are in play rather than
+   * one — which is where the 4x capacity actually gets used.
+   */
+  /*
+   * OpenRouter is narrowed to ONE model deliberately. Its adapter offers three,
+   * but the 50/day free allowance is account-wide: offering all three would show
+   * the scheduler three independent buckets backed by a single budget. The
+   * bucket builder refuses to do this silently, and caught exactly this mistake
+   * the first time Suite 1 ran through it.
+   */
+  const openrouterScheduled = openrouter.models.filter((m) => m.tier === "fast");
 
-  const router = new MultiProviderRouter({
-    dialogue: [
-      { providerId: "groq", provider: groq, model: groqFast },
-      { providerId: "openrouter", provider: openrouter, model: openrouterFast },
-    ],
-    extract: [
-      { providerId: "groq", provider: groq, model: groqFast },
-      { providerId: "openrouter", provider: openrouter, model: openrouterFast },
-    ],
+  const router = new SchedulerRouter({
+    registry,
+    adapters: { groq, openrouter },
+    providerIds: ["groq", "openrouter"],
+    modelsByProvider: { openrouter: openrouterScheduled },
+    sleep,
   });
 
   const reps = Number(process.env["SUITE1_REPS"] ?? "3");
@@ -578,13 +434,47 @@ async function main(): Promise<void> {
   console.log(
     `facts ${String(SUITE1.facts.length)} · turns ${String(SUITE1.script.length)} · checkpoints 30/60/100 + fresh · reps ${String(reps)}`,
   );
-  console.log(
-    `primary dialogue:  ${groqFast.id} (groq)\n` +
-      `failover dialogue: ${openrouterFast.id} (openrouter)\n` +
-      `primary extract:   ${groqFast.id} (groq)\n` +
-      `failover extract:  ${openrouterFast.id} (openrouter)\n` +
-      `embeddings:        ${embedder.id}\n`,
-  );
+  /*
+   * PREFLIGHT: prove the embedder works before measuring anything.
+   *
+   * Without this the suite runs to completion on a dead embedding credential,
+   * stores memories with no vectors, silently degrades retrieval to text-only,
+   * and prints a recall number that looks like a memory-quality result. That
+   * happened: two full runs reported 67% recall while every one of 12 embedding
+   * calls was returning 401. A benchmark that cannot produce a valid number must
+   * refuse to produce one at all.
+   */
+  try {
+    const probe = await embedder.embed(["preflight: the sword beneath the floorboards"]);
+    const dims = probe[0]?.length ?? 0;
+    if (dims === 0) throw new Error("embedder returned no vector");
+    console.log(`preflight: embeddings OK (${embedder.id}, ${String(dims)} dims)`);
+  } catch (e) {
+    console.error(
+      `
+ABORTED — the embedding provider is not usable, so recall cannot be measured.
+` +
+        `  ${e instanceof Error ? e.message : String(e)}
+
+` +
+        `  Retrieval would silently fall back to text-only search and the run would
+` +
+        `  still print a recall figure. That figure would not mean what it says.
+`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const inv = router.capacityOverview();
+  console.log("routing: capacity scheduler (ADR-021) — no primary/fallback chain");
+  for (const [pid, st] of Object.entries(inv.byProvider)) {
+    console.log(
+      `  ${pid.padEnd(11)} ${String(st.buckets).padStart(3)} buckets  ` +
+        `${String(st.models.length)} model(s)  headroom ${(st.headroom * 100).toFixed(0)}%`,
+    );
+  }
+  console.log(`  TOTAL ${String(inv.totalBuckets)} buckets · embeddings ${embedder.id}`);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const outDir = "docs/benchmarks/runs";
@@ -603,10 +493,8 @@ async function main(): Promise<void> {
         {
           suite: "suite1",
           date: stamp,
-          candidates: {
-            dialogue: [groqFast.id, openrouterFast.id],
-            extract: [groqFast.id, openrouterFast.id],
-          },
+          // Every bucket the scheduler could draw on, not a fixed pair.
+          capacity: router.capacityOverview(),
           embedder: embedder.id,
           facts: SUITE1.facts.length,
           turns: SUITE1.script.length,
@@ -623,7 +511,8 @@ async function main(): Promise<void> {
             extractionDrops: x.extractionDrops,
             wallClockMs: x.wallClockMs,
             providerUsage: x.providerUsage,
-            fallbacks: x.fallbacks,
+            attempts: x.attempts,
+            bucketsUsed: x.bucketsUsed,
             probes: x.probes,
           })),
           telemetrySummary: {
@@ -647,16 +536,26 @@ async function main(): Promise<void> {
                 0,
               ),
             },
-            totalFallbacks: router.fallbacks.length,
-            fallbacksByReason: {
-              RATE_LIMITED: router.fallbacks.filter((f) => f.fallbackReason === "RATE_LIMITED")
-                .length,
-              BUDGET_EXCEEDED: router.fallbacks.filter((f) => f.fallbackReason === "BUDGET_EXCEEDED")
-                .length,
-              NO_CREDENTIAL: router.fallbacks.filter((f) => f.fallbackReason === "NO_CREDENTIAL")
-                .length,
-              PROVIDER_ERROR: router.fallbacks.filter((f) => f.fallbackReason === "PROVIDER_ERROR")
-                .length,
+            routing: {
+              totalAttempts: router.attempts.length,
+              reroutes: router.attempts.filter((a) => a.status !== "ok").length,
+              byReason: {
+                RATE_LIMITED: router.attempts.filter((a) => a.status !== "ok").filter((a) => a.status === "RATE_LIMITED").length,
+                BUDGET_EXCEEDED: router.attempts.filter((a) => a.status !== "ok").filter((a) => a.status === "BUDGET_EXCEEDED").length,
+                NO_CREDENTIAL: router.attempts.filter((a) => a.status !== "ok").filter((a) => a.status === "NO_CREDENTIAL").length,
+                PROVIDER_ERROR: router.attempts.filter((a) => a.status !== "ok").filter((a) => a.status === "PROVIDER_ERROR").length,
+              },
+              distinctBucketsUsed: new Set(
+                router.attempts.filter((a) => a.status === "ok").map((a) => a.bucketId),
+              ).size,
+              byBucket: Object.fromEntries(
+                Object.entries(
+                  router.attempts.reduce<Record<string, number>>((acc, a) => {
+                    if (a.status === "ok") acc[a.bucketId] = (acc[a.bucketId] ?? 0) + 1;
+                    return acc;
+                  }, {}),
+                ).sort((a, b) => b[1] - a[1]),
+              ),
             },
             extractionDrops: results.reduce((acc, x) => acc + x.extractionDrops, 0),
           },
@@ -677,7 +576,8 @@ async function main(): Promise<void> {
     console.log(
       `    → recall ${(last.overallRecall * 100).toFixed(0)}%  ` +
         `memories ${String(last.memoriesStored)}  gate-skipped ${String(last.gateSkipped)}/${String(last.turns)}  ` +
-        `groq:${String(groqCalls)} or:${String(orCalls)}  fallbacks ${String(last.fallbacks.length)}  ` +
+        `groq:${String(groqCalls)} or:${String(orCalls)}  ` +
+        `buckets ${String(last.bucketsUsed)}  reroutes ${String(last.attempts.filter((a) => a.status !== "ok").length)}  ` +
         `${(last.wallClockMs / 1000).toFixed(0)}s`,
     );
 
@@ -765,10 +665,15 @@ async function main(): Promise<void> {
   console.log(
     `  share:      groq ${groqPct.toFixed(1)}% · openrouter ${orPct.toFixed(1)}%`,
   );
-  console.log(`  fallbacks:  ${String(router.fallbacks.length)} total`);
+  const reroutes = router.attempts.filter((a) => a.status !== "ok");
+  const usedBuckets = new Set(
+    router.attempts.filter((a) => a.status === "ok").map((a) => a.bucketId),
+  );
+  console.log(`  buckets:    ${String(usedBuckets.size)} distinct carried load`);
+  console.log(`  reroutes:   ${String(reroutes.length)} total`);
   const reasonCounts: Record<string, number> = {};
-  for (const fb of router.fallbacks) {
-    reasonCounts[fb.fallbackReason] = (reasonCounts[fb.fallbackReason] ?? 0) + 1;
+  for (const fb of reroutes) {
+    reasonCounts[fb.status] = (reasonCounts[fb.status] ?? 0) + 1;
   }
   for (const [reason, count] of Object.entries(reasonCounts)) {
     console.log(`    - ${reason}: ${String(count)}`);

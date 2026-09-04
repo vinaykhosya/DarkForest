@@ -1,4 +1,4 @@
-import type { InferencePool, ModelDescriptor } from "@darkforest/contracts";
+import type { InferencePool, ModelDescriptor, TaskClass } from "@darkforest/contracts";
 import { checkPoolEligibility, type Environment } from "./pool-guard.js";
 import { headroom, isAvailable, type CredentialState } from "./credential-pool.js";
 
@@ -55,6 +55,11 @@ export interface SchedulingIntent {
   requiredContextWindow?: number;
   /** Restrict to these tiers, in order of preference. Empty = any tier. */
   tiers?: readonly ModelDescriptor["tier"][];
+  /**
+   * The task being scheduled. Models that declare `verifiedTaskClasses` without
+   * this one are rejected as INCAPABLE, before any capacity comparison.
+   */
+  taskClass?: TaskClass;
 }
 
 export type RejectionReason =
@@ -63,6 +68,7 @@ export type RejectionReason =
   | "not_benchmarked"
   | "missing_tools"
   | "missing_structured_output"
+  | "not_verified_for_task"
   | "context_too_small"
   | "wrong_tier"
   | "no_capacity";
@@ -124,6 +130,32 @@ function capabilityRejection(
       detail: `${m.id} has no response_format`,
     };
   }
+  /*
+   * Measured competence, checked as a capability rather than folded into the
+   * quality score.
+   *
+   * Suite 1 dropped 19 extractions when the scheduler began spreading load
+   * across four Groq models that all DECLARE structured-output support. The
+   * weakest of them emitted almost nothing, which cost almost no tokens, which
+   * left it the most headroom — so a headroom-dominant score kept selecting it.
+   * Failing cheaply looked exactly like having capacity.
+   *
+   * Scoring cannot fix that, because the feedback loop runs the wrong way. A
+   * model that cannot do the job must be excluded from the comparison, not
+   * ranked lower within it.
+   */
+  if (
+    intent.taskClass !== undefined &&
+    m.verifiedTaskClasses !== undefined &&
+    !m.verifiedTaskClasses.includes(intent.taskClass)
+  ) {
+    return {
+      bucketId: bucket.id,
+      reason: "not_verified_for_task",
+      detail: `${m.id} is not verified for ${intent.taskClass}`,
+    };
+  }
+
   // A request larger than the model's per-request ceiling is rejected here
   // rather than spent: an oversize call still consumes a daily request.
   const needed = intent.requiredContextWindow ?? intent.estimatedTokens;

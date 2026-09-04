@@ -261,6 +261,28 @@ export class CredentialRegistry {
     );
   }
 
+  /**
+   * Live metering state for every bucket, carrying the provider's REAL declared
+   * limits.
+   *
+   * This exists because callers that need to reason about capacity — the
+   * scheduler, the capacity report — were otherwise reconstructing state from a
+   * `PoolSnapshot`, which carries counters but not limits. Reconstruction means
+   * guessing, and a guessed limit is indistinguishable from a measured one once
+   * it is in a data structure. The smoke test guessed `{rpm:30, rpd:1000,
+   * tpm:8000}` for every provider, which is right for Groq and wrong for the
+   * other three.
+   *
+   * Contains no key material: `CredentialState` is ids and counters.
+   */
+  states(providerId?: string): readonly CredentialState[] {
+    const pools =
+      providerId === undefined
+        ? [...this.pools.values()]
+        : [this.pools.get(providerId) ?? []];
+    return pools.flatMap((stored) => stored.map((s) => s.state));
+  }
+
   /** Every pool's snapshot. Safe to log — contains ids and counters only. */
   snapshotAll(now: number = Date.now()): PoolSnapshot[] {
     return [...this.pools.keys()]

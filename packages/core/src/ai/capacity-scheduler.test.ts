@@ -301,3 +301,58 @@ describe("overview", () => {
     expect(o.aggregateHeadroom).toBe(1);
   });
 });
+
+describe("schedule — measured competence gates capacity (ADR-022)", () => {
+  it("excludes a model not verified for the task, however much headroom it has", () => {
+    /*
+     * The regression this prevents. Suite 1 dropped 19 extractions when the
+     * scheduler spread load across four Groq models that all DECLARE
+     * structured-output support. The weakest emitted almost nothing, which cost
+     * almost no tokens, which left it the most headroom — so the score kept
+     * choosing it. Failing cheaply looked exactly like having capacity.
+     *
+     * Scoring cannot fix this: the feedback loop runs the wrong way. Capability
+     * has to be settled before capacity.
+     */
+    const drained = bucket("groq", "good", 1, PRODUCTION, {
+      verifiedTaskClasses: ["extract"],
+    });
+    const idle = bucket("groq", "cheap-failure", 2, PRODUCTION, {
+      verifiedTaskClasses: ["dialogue"],
+    });
+    // The unverified bucket is completely fresh; the verified one is nearly out.
+    const nearlyOut = {
+      ...drained,
+      state: { ...drained.state, requestsThisMinute: 29, tokensThisMinute: 7000 },
+    };
+
+    const decision = schedule([nearlyOut, idle], { ...intent, taskClass: "extract" }, T0);
+    expect(decision.bucket?.model.id).toBe("good");
+    expect(decision.rejected.find((r) => r.bucketId === idle.id)?.reason).toBe(
+      "not_verified_for_task",
+    );
+  });
+
+  it("still offers a prose-only model for the task it IS verified for", () => {
+    const prose = bucket("groq", "qwen", 1, PRODUCTION, {
+      verifiedTaskClasses: ["dialogue"],
+    });
+    expect(schedule([prose], { ...intent, taskClass: "dialogue" }, T0).bucket).not.toBeNull();
+    expect(schedule([prose], { ...intent, taskClass: "extract" }, T0).bucket).toBeNull();
+  });
+
+  it("leaves models that declare nothing unrestricted", () => {
+    // Absence of a measurement is not evidence of incompetence; it only means
+    // we have not checked. Restricting on absence would silently disable every
+    // provider we have not yet probed.
+    const unknown = bucket("openrouter", "unmeasured", 1);
+    expect(schedule([unknown], { ...intent, taskClass: "extract" }, T0).bucket).not.toBeNull();
+  });
+
+  it("ignores the task class entirely when the caller does not name one", () => {
+    const prose = bucket("groq", "qwen", 1, PRODUCTION, {
+      verifiedTaskClasses: ["dialogue"],
+    });
+    expect(schedule([prose], intent, T0).bucket).not.toBeNull();
+  });
+});

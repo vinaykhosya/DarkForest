@@ -554,6 +554,91 @@ documentation.
 
 ---
 
+### ADR-022 - Measured competence is a capability, checked before capacity
+**2026-09-04 . Accepted . Refines ADR-021**
+
+**Context.** Wiring Suite 1 through the ADR-021 scheduler removed the capacity
+bottleneck exactly as intended - 36 buckets carried load, 3 reroutes, Groq
+finished at 32/32 available with 90% headroom. Recall nevertheless FELL, from a
+median of 84% to 67%, with 19 extraction batches dropped.
+
+**What happened.** The scheduler spread extraction across all four Groq dialogue
+models. All four DECLARE `supportsStructuredOutput`. Measured on the real
+extraction prompt, 15 attempts each, the declaration held very unevenly:
+
+  gpt-oss-20b   17 memories stored, 0 dropped
+  gpt-oss-120b  15 memories stored, 0 dropped
+  qwen3.8-27b   12 memories stored
+  qwen3.6-27b   verbose enough to exhaust its own TPM mid-probe
+
+34 of 62 extractions went to qwen3.8.
+
+**The mechanism, which is the part worth remembering.** A model that emits almost
+nothing also consumes almost no tokens. Consuming no tokens leaves it the most
+headroom. Headroom dominates the score at 0.55. So the weakest model looked like
+the one with the most capacity, and the scheduler kept selecting it.
+
+**Failing cheaply is indistinguishable from having capacity**, and the feedback
+loop runs the wrong way: the worse a model performs, the more attractive it
+becomes. No adjustment of the weights fixes that. Lowering `qualityScore` for
+qwen would only slow the loop down, because quality is a tiebreak and headroom
+is not.
+
+**Decision.** Competence is a CAPABILITY, not a score. `ModelDescriptor` gains
+`verifiedTaskClasses` - the task classes a model has been MEASURED to handle.
+The scheduler rejects a model that declares the field without the requested task
+before any capacity comparison, reusing ADR-021 ordering: eligibility, then
+capability, then capacity. Absent means unrestricted, because absence of a
+measurement is not evidence of incompetence.
+
+**The uncomfortable part.** This constraint was already known. `groq.ts` carried
+the comment "qwen models ... failed JSON-mode validation in testing, so they are
+not used for structured-output task classes." It was accurate, it was in the
+right file, and it changed nothing, because the previous wiring happened to pin
+one model and never exercised the case. **Prose does not route traffic.** A
+constraint that lives only in a comment is not a constraint; it is a note about
+one that ought to exist.
+
+**Trade-off.** Extraction now draws on 16 buckets rather than 32, halving its
+capacity ceiling - comfortably above the ~65 extraction calls a Suite 1 run
+makes. Every new provider needs probing before its models can take structured
+work, and the probe costs real calls. Worth it: an unverified model silently
+dropping memories is the most expensive failure this system has.
+
+**Revisit.** When a provider is added, or when a model structured-output
+behaviour changes. `pnpm exec tsx packages/evals/src/extraction-probe.ts` is the
+measurement.
+
+---
+
+### ADR-023 - A benchmark that cannot produce a valid number must refuse to produce one
+**2026-09-04 . Accepted**
+
+**Context.** Two full Suite 1 runs reported 67% recall. Both were measured with
+NO embeddings: the Cloudflare token had been revoked, and all 12 embedding calls
+in a subsequent isolated test returned 401. Retrieval degraded silently to
+text-only search, the suite completed, and it printed a recall figure.
+
+**Decision.** Suite 1 preflights the embedding provider and ABORTS if it cannot
+embed. It does not warn, degrade, or annotate the result.
+
+**Rationale.** A benchmark failure mode must not be a plausible number. The
+number was in exactly the range where it would have been believed - low enough
+to look like a real regression, high enough not to look broken - and it arrived
+in the same session as a routing change, which is precisely when a false signal
+does the most damage. Two hours were nearly spent tuning retrieval against a
+dead credential.
+
+This generalises past the embedder: any dependency whose absence changes what is
+being measured, rather than whether it can be measured, belongs in the preflight.
+
+**Trade-off.** The suite cannot run at all when embeddings are down, including
+for work unrelated to retrieval. That is the intended cost.
+
+**Revisit.** Never for the principle. The list of preflighted dependencies grows.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

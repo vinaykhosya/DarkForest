@@ -17,7 +17,14 @@
  */
 
 import { readFileSync } from "node:fs";
-import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
+import {
+  buildCapacityBuckets,
+  CredentialRegistry,
+  GEMINI_DEV_MODELS,
+  GroqProvider,
+  NVIDIA_DEV_MODELS,
+  OpenRouterProvider,
+} from "@darkforest/ai";
 import { AIError, poolsFor, type ModelDescriptor, type ModelPolicy } from "@darkforest/contracts";
 import {
   overview,
@@ -26,7 +33,6 @@ import {
   schedule,
   type CapacityBucket,
 } from "@darkforest/core";
-import { NVIDIA_DEV_MODELS } from "@darkforest/ai";
 
 function loadEnv(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -103,51 +109,30 @@ async function main(): Promise<void> {
 
   // ── 1. Bucket inventory ───────────────────────────────────────────────────
   console.log("\n[1] CAPACITY BUCKETS — provider → model → credential\n");
-  const buckets: CapacityBucket[] = [];
+  /*
+   * Buckets come from the shared builder, which reads the registry's live state
+   * and the limits declared in PROVIDER_CREDENTIALS.
+   *
+   * An earlier version of this file assembled them here and, having no access to
+   * the real limits, hardcoded {rpm:30, rpd:1000, tpm:8000} for every provider.
+   * That is Groq's shape and wrong for the other three — NVIDIA declares only an
+   * RPM, OpenRouter is account-wide at 50/day. A fabricated limit is
+   * indistinguishable from a measured one once it is in a data structure, so the
+   * test would have "passed" against numbers it invented.
+   */
   const providerById = new Map<string, GroqProvider | OpenRouterProvider>([
     ["groq", groq],
     ["openrouter", openrouter],
   ]);
-
-  for (const snap of registry.snapshotAll()) {
-    for (const cred of snap.perCredential) {
-      const modelId = cred.modelId;
-      let model: ModelDescriptor | undefined;
-
-      if (snap.providerId === "groq" && modelId !== null) {
-        model = groq.models.find((m) => m.id === modelId);
-      } else if (snap.providerId === "openrouter") {
-        model = openrouter.models.find((m) => m.tier === "fast");
-      } else if (snap.providerId === "gemini" && modelId !== null) {
-        model = devModel(modelId, "fast");
-      } else if (snap.providerId === "nvidia") {
-        model = devModel(NVIDIA_DEV_MODELS[0], "fast");
-      }
-      if (!model) continue;
-
-      buckets.push({
-        id: `${snap.providerId}:${model.id}:${cred.id}`,
-        providerId: snap.providerId,
-        model,
-        state: {
-          id: cred.id,
-          providerId: snap.providerId,
-          modelId,
-          limits: { rpm: 30, rpd: 1000, tpm: 8000 },
-          requestsThisMinute: 0,
-          requestsToday: cred.requestsToday,
-          tokensThisMinute: 0,
-          tokensToday: cred.tokensToday,
-          minuteWindowStart: Date.now(),
-          dayWindowStart: Date.now(),
-          cooldownUntil: null,
-          consecutiveFailures: 0,
-          disabled: cred.disabled,
-          disabledReason: cred.disabledReason,
-        },
-      });
-    }
-  }
+  const devSources = [
+    { id: "gemini", models: GEMINI_DEV_MODELS.map((m) => devModel(m, "fast")) },
+    { id: "nvidia", models: NVIDIA_DEV_MODELS.map((m) => devModel(m, "fast")) },
+  ];
+  const buckets: CapacityBucket[] = buildCapacityBuckets(registry, [
+    { id: groq.id, models: groq.models },
+    { id: openrouter.id, models: openrouter.models.filter((m) => m.tier === "fast") },
+    ...devSources,
+  ]);
 
   const inv = overview(buckets, Date.now());
   for (const [provider, s] of Object.entries(inv.byProvider)) {

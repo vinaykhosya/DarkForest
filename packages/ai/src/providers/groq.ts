@@ -9,6 +9,7 @@ import {
   type ModelPolicy,
   type ProviderHealth,
   type StreamChunk,
+  type TaskClass,
   type ToolCall,
 } from "@darkforest/contracts";
 import { redactKeys } from "../credentials.js";
@@ -67,7 +68,43 @@ interface GroqModelSpec {
   reasoning?: boolean;
   /** Accepts reasoning_effort: low|medium|high. qwen accepts only none|default. */
   supportsEffortLevels?: boolean;
+  /**
+   * Task classes MEASURED to work on this model, not the ones it advertises.
+   * Omitted means unrestricted.
+   */
+  verifiedTaskClasses?: readonly TaskClass[];
 }
+
+/**
+ * Task classes whose output must parse and be schema-valid.
+ *
+ * Measured 2026-09-04 on the real extraction prompt, 15 attempts per model:
+ *   gpt-oss-20b   17 memories stored, 0 dropped, 0 repairs
+ *   gpt-oss-120b  15 memories stored, 0 dropped, 0 repairs
+ *   qwen3.8-27b   12 memories stored, 0 dropped, 0 repairs
+ *   qwen3.6-27b   verbose enough to exhaust its own TPM mid-probe; 2 repairs
+ *
+ * The qwen limitation was already known and written down here as prose — "they
+ * are not used for structured-output task classes" — but prose does not route
+ * traffic. Once the scheduler chose models by capacity it sent 34 of 62
+ * extractions to qwen3.8 and Suite 1 dropped 19 of them. A constraint that
+ * lives only in a comment is not a constraint.
+ */
+const STRUCTURED_VERIFIED: readonly TaskClass[] = [
+  "dialogue",
+  "extract",
+  "plan",
+  "classify",
+  "consolidate",
+];
+
+/** qwen models: prose only. They write well and fail schemas. */
+const PROSE_ONLY: readonly TaskClass[] = [
+  "dialogue",
+  "dialogue_reaction",
+  "narrate",
+  "summarize_chapter",
+];
 
 /**
  * The routable catalogue. Deliberately small: a model without a benchmarked
@@ -77,12 +114,25 @@ interface GroqModelSpec {
 const [GPT_OSS_120B, GPT_OSS_20B, QWEN_36, QWEN_38] = GROQ_DIALOGUE_MODELS;
 
 const MODELS: GroqModelSpec[] = [
-  { id: GPT_OSS_120B, tier: "standard", reasoning: true, supportsEffortLevels: true },
-  { id: GPT_OSS_20B, tier: "fast", reasoning: true, supportsEffortLevels: true },
+  {
+    id: GPT_OSS_120B,
+    tier: "standard",
+    reasoning: true,
+    supportsEffortLevels: true,
+    verifiedTaskClasses: STRUCTURED_VERIFIED,
+  },
+  {
+    id: GPT_OSS_20B,
+    tier: "fast",
+    reasoning: true,
+    supportsEffortLevels: true,
+    verifiedTaskClasses: STRUCTURED_VERIFIED,
+  },
   // qwen models reject reasoning_effort levels and failed JSON-mode validation
-  // in testing, so they are not used for structured-output task classes.
-  { id: QWEN_36, tier: "standard", reasoning: true },
-  { id: QWEN_38, tier: "standard", reasoning: true },
+  // in testing. That is now DECLARED rather than merely described, so the
+  // scheduler excludes them from structured tasks instead of discovering it.
+  { id: QWEN_36, tier: "standard", reasoning: true, verifiedTaskClasses: PROSE_ONLY },
+  { id: QWEN_38, tier: "standard", reasoning: true, verifiedTaskClasses: PROSE_ONLY },
 ];
 
 /** Task classes whose output must parse. These need JSON mode and a token headroom. */
@@ -97,8 +147,15 @@ const STRUCTURED_TASKS = new Set(["extract", "plan", "classify", "moderate", "in
 const REASONING_HEADROOM_TOKENS = 400;
 
 export interface GroqConfig {
-  /** Acquired per-call from the CredentialRegistry. Never held on the instance. */
-  getCredential: (estimatedTokens: number) => { id: string; key: string } | null;
+  /**
+   * Acquired per-call from the CredentialRegistry. Never held on the instance.
+   *
+   * `modelId` is not optional in practice: Groq meters each model separately
+   * (ADR-021), so a registry that does not know the model can hand back a bucket
+   * metering a DIFFERENT model's budget. Local accounting then drifts from what
+   * Groq actually enforces, and the drift surfaces as an unexplained 429.
+   */
+  getCredential: (estimatedTokens: number, modelId: string) => { id: string; key: string } | null;
   onSuccess?: (credentialId: string, tokens: number) => void;
   onRateLimited?: (credentialId: string, retryAfterMs: number | undefined) => void;
   onRejected?: (credentialId: string, reason: string) => void;
@@ -160,6 +217,9 @@ export class GroqProvider implements AIProvider {
       isFree: true,
       rateLimit: { rpm: 30, rpd: 1000, tpm: 8000 },
       ...(spec.qualityScore === undefined ? {} : { qualityScore: spec.qualityScore }),
+      ...(spec.verifiedTaskClasses === undefined
+        ? {}
+        : { verifiedTaskClasses: spec.verifiedTaskClasses }),
     }));
   }
 
@@ -190,7 +250,7 @@ export class GroqProvider implements AIProvider {
       );
     }
 
-    const credential = this.config.getCredential(estimated);
+    const credential = this.config.getCredential(estimated, model.id);
     if (!credential) {
       throw new AIError("BUDGET_EXCEEDED", "No Groq credential available", model.id);
     }

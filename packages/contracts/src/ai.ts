@@ -219,6 +219,23 @@ export interface ModelDescriptor {
   rateLimit?: { rpm?: number; rpd?: number; tpm?: number; tpd?: number };
   /** From our own eval suite (docs/15 § 4). Undefined = not yet benchmarked = not routable. */
   qualityScore?: number;
+  /**
+   * Task classes this model has been MEASURED to handle, not the ones it claims.
+   * Undefined means unrestricted; a non-empty list is a whitelist.
+   *
+   * `supportsStructuredOutput` is a vendor capability claim, and every Groq
+   * dialogue model asserts it. Measured on the real extraction prompt
+   * (2026-09-04, 15 attempts each) the claim held very unevenly:
+   *   gpt-oss-20b   17 memories stored
+   *   gpt-oss-120b  15
+   *   qwen3.8-27b   12
+   *   qwen3.6-27b   verbose enough to exhaust its own TPM before finishing
+   *
+   * The scheduler settles capability BEFORE capacity precisely so that a model
+   * which cannot do the job never competes for it on the strength of having
+   * spare quota. See ADR-022.
+   */
+  verifiedTaskClasses?: readonly TaskClass[];
 }
 
 /**

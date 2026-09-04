@@ -34,4 +34,10 @@ export {
   type ProviderCredentialConfig,
 } from "./credentials.js";
 
+export {
+  buildCapacityBuckets,
+  type ModelSource,
+  type BuildBucketsOptions,
+} from "./capacity.js";
+
 export * from "./registry/models.js";
