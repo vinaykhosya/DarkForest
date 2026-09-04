@@ -34,6 +34,16 @@ interface Check {
   body?: unknown;
   /** What a failure here tells us. */
   meaning: string;
+  /**
+   * False for checks that are diagnostic only.
+   *
+   * Reading account metadata is NOT required to embed, and a token scoped to
+   * Workers AI alone correctly fails it. Gating on that check demanded more
+   * privilege than the task needs and would have rejected the best-scoped token
+   * available — exactly backwards. Only the capability we actually use decides
+   * usability.
+   */
+  required: boolean;
 }
 
 async function probe(token: string, check: Check): Promise<{ status: number; body: string }> {
@@ -73,17 +83,22 @@ async function main(): Promise<void> {
       name: "token is active",
       url: "https://api.cloudflare.com/client/v4/user/tokens/verify",
       meaning: "token does not exist — not created, not confirmed, or revoked",
+      required: true,
     },
     {
-      name: "account is readable",
+      name: "account metadata",
       url: `https://api.cloudflare.com/client/v4/accounts/${account}`,
-      meaning: "token is not scoped to this account, or CF_ACCOUNT_ID is wrong",
+      meaning:
+        "cannot read account metadata. Expected — and correct — for a token " +
+        "scoped to Workers AI alone. We never call this endpoint in operation.",
+      required: false,
     },
     {
       name: "Workers AI inference",
       url: `https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${CLOUDFLARE_EMBEDDING_MODEL}`,
       body: { text: ["preflight"] },
       meaning: "token lacks Workers AI, or is an R2/other product token",
+      required: true,
     },
   ];
 
@@ -91,9 +106,13 @@ async function main(): Promise<void> {
   for (const check of checks) {
     const { status, body } = await probe(token, check);
     const ok = status === 200;
-    if (!ok) allOk = false;
-    console.log(`  ${ok ? "✓" : "✗"} ${check.name.padEnd(22)} HTTP ${String(status)}`);
-    if (!ok) console.log(`      → ${check.meaning}\n      ${body}`);
+    if (!ok && check.required) allOk = false;
+    const mark = ok ? "✓" : check.required ? "✗" : "·";
+    console.log(`  ${mark} ${check.name.padEnd(22)} HTTP ${String(status)}`);
+    if (!ok) {
+      console.log(`      ${check.required ? "→" : "note:"} ${check.meaning}`);
+      if (check.required) console.log(`      ${body}`);
+    }
   }
 
   console.log(
