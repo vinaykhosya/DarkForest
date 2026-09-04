@@ -486,6 +486,74 @@ raises the ceiling and would make `full` viable on Groq.
 
 ---
 
+### ADR-021 — Capacity-aware multi-provider scheduler
+**2026-09-04 · Accepted · Refines ADR-017 and ADR-019**
+
+**Context.** Routing thought in terms of `provider -> credential`, with Groq
+primary and everything else fallback. Two problems, one measured and one
+structural.
+
+**Measured.** Groq meters rate limits PER MODEL. Four models called on the SAME
+credential each returned `x-ratelimit-remaining-requests: 999/1000`; a shared
+budget would have shown 996 by the fourth call and monotonically falling tokens.
+Metering Groq as one bucket per credential therefore used **25% of its real
+capacity** — 8 credentials x 4 models is 32 independent buckets, modelled as 8.
+
+A fabricated limit compounded it: `tpd: 200_000` was declared for Groq, but Groq
+exposes no tokens-per-day header. An imaginary ceiling throttling real capacity.
+
+**Structural.** Fallback-only routing leaves other providers idle until the
+primary is exhausted, then hands them a thundering herd. This was not
+theoretical: Suite 1 run 3 scored **70% recall against 91% and 84%** for runs 1
+and 2, with six rate-limit retries and Groq down to 2/8 credentials. Capacity
+pressure was measurably degrading MEMORY RECALL — the benchmark was partly
+measuring the rate limiter.
+
+**Decision.** Capacity is keyed `provider -> model -> credential -> bucket`, and
+independent requests are distributed across all eligible buckets rather than
+funnelled through one provider.
+
+Per-model bucketing is opt-in per provider and must be VERIFIED, never assumed:
+
+  groq        perModelLimits  verified independent, 4 models
+  gemini      perModelLimits  per model per project (dev-only)
+  openrouter  account-wide    50/day shared across all :free endpoints
+  nvidia      account-wide    no verified per-model limits published
+  cloudflare  account-wide    neuron budget is account-scoped
+
+Getting this backwards in either direction is a bug. Under-splitting wastes real
+capacity (the Groq case). Over-splitting INVENTS capacity that does not exist,
+which is worse — it produces confident 429s.
+
+**Selection.** Eligibility (terms, pool, benchmarking) is settled first,
+capability second, capacity third. A model we may not legally use never enters a
+capacity comparison. Among survivors, score is dominated by fractional headroom;
+quality is a tiebreak, because an idle lesser model beats a saturated better one
+— a request that cannot run has no quality at all.
+
+**What this is NOT.** It does not fan one request out to several providers. That
+would multiply cost for a single answer. It distributes INDEPENDENT requests
+across INDEPENDENT capacity.
+
+**Safety unchanged.** `checkPoolEligibility` is untouched. NVIDIA remains
+development-only on contractual grounds (ADR-013), Gemini on privacy grounds
+(ADR-009), and both fail closed without an explicit synthetic-content flag in a
+local environment. Verified live: dev-only buckets are refused in production and
+refused without the flag.
+
+**Trade-off.** More moving parts, and a per-provider metering claim that must be
+re-verified when terms change. The verification procedure is recorded next to
+the flag so it can be repeated rather than trusted.
+
+**Measured result.** 8 buckets -> 49. Groq 4x. Smoke test 7/7: distribution
+across 12 distinct buckets, onward routing when Groq is exhausted, development
+pool available, production boundary intact.
+
+**Revisit.** Monthly with X-06, and whenever a provider changes its rate-limit
+documentation.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

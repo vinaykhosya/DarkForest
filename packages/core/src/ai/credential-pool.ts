@@ -31,6 +31,20 @@ export interface CredentialLimits {
 export interface CredentialState {
   id: CredentialId;
   providerId: string;
+  /**
+   * The model this bucket meters, when the provider's limits are per-model.
+   *
+   * VERIFIED 2026-09-04: four Groq models called on the SAME credential each
+   * returned x-ratelimit-remaining-requests: 999/1000. Shared buckets would
+   * have shown 996 and monotonically falling tokens. They are independent.
+   *
+   * Modelling Groq as one bucket per credential therefore used 25% of its real
+   * capacity: 8 credentials x 4 models = 32 independent buckets, metered as 8.
+   *
+   * null when the provider meters per credential (OpenRouter's 50/day and
+   * Cloudflare's neuron budget are account-wide, not per model).
+   */
+  modelId: string | null;
   limits: CredentialLimits;
   /** Rolling counters. Reset when their window rolls over. */
   requestsThisMinute: number;
@@ -52,10 +66,12 @@ export function createCredentialState(
   providerId: string,
   limits: CredentialLimits,
   now: number,
+  modelId: string | null = null,
 ): CredentialState {
   return {
     id,
     providerId,
+    modelId,
     limits,
     requestsThisMinute: 0,
     requestsToday: 0,
@@ -255,6 +271,8 @@ export function recordRejected(state: CredentialState, reason: string): Credenti
 
 export interface PoolSnapshot {
   providerId: string;
+  /** Set when this snapshot covers a single model's buckets. */
+  modelId?: string | null;
   total: number;
   available: number;
   cooling: number;
@@ -263,6 +281,7 @@ export interface PoolSnapshot {
   aggregateHeadroom: number;
   perCredential: Array<{
     id: CredentialId;
+    modelId: string | null;
     headroom: number;
     requestsToday: number;
     tokensToday: number;
@@ -292,6 +311,7 @@ export function snapshotPool(
         : active.reduce((sum, c) => sum + headroom(c, now), 0) / active.length,
     perCredential: pool.map((c) => ({
       id: c.id,
+      modelId: c.modelId,
       headroom: headroom(c, now),
       requestsToday: c.requestsToday,
       tokensToday: c.tokensToday,

@@ -12,6 +12,7 @@ import {
   type ToolCall,
 } from "@darkforest/contracts";
 import { redactKeys } from "../credentials.js";
+import { GROQ_DIALOGUE_MODELS } from "../registry/models.js";
 
 /**
  * Groq — the primary production provider. ADR-009.
@@ -73,13 +74,15 @@ interface GroqModelSpec {
  * quality score is not routable in production (docs/08 § 4), and every entry
  * here has had its capabilities confirmed by a real call.
  */
+const [GPT_OSS_120B, GPT_OSS_20B, QWEN_36, QWEN_38] = GROQ_DIALOGUE_MODELS;
+
 const MODELS: GroqModelSpec[] = [
-  { id: "openai/gpt-oss-120b", tier: "standard", reasoning: true, supportsEffortLevels: true },
-  { id: "openai/gpt-oss-20b", tier: "fast", reasoning: true, supportsEffortLevels: true },
+  { id: GPT_OSS_120B, tier: "standard", reasoning: true, supportsEffortLevels: true },
+  { id: GPT_OSS_20B, tier: "fast", reasoning: true, supportsEffortLevels: true },
   // qwen models reject reasoning_effort levels and failed JSON-mode validation
   // in testing, so they are not used for structured-output task classes.
-  { id: "qwen/qwen3.6-27b", tier: "standard", reasoning: true },
-  { id: "qwen/qwen3.8-27b", tier: "standard", reasoning: true },
+  { id: QWEN_36, tier: "standard", reasoning: true },
+  { id: QWEN_38, tier: "standard", reasoning: true },
 ];
 
 /** Task classes whose output must parse. These need JSON mode and a token headroom. */

@@ -10,6 +10,7 @@ import {
   type CredentialState,
   type PoolSnapshot,
 } from "@darkforest/core";
+import { GEMINI_DEV_MODELS, GROQ_DIALOGUE_MODELS } from "./registry/models.js";
 
 /**
  * Credential registry — the only module that holds key material.
@@ -29,8 +30,27 @@ import {
 export interface ProviderCredentialConfig {
   providerId: string;
   envVar: string;
-  /** Per-credential limits. Applied to each key independently. */
+  /** Limits for ONE bucket. See `perModelLimits` for what a bucket covers. */
   limits: CredentialLimits;
+  /**
+   * True when the provider meters each MODEL independently on the same
+   * credential — one bucket per (credential x model) rather than per credential.
+   *
+   * Must be VERIFIED, never assumed. The test: call several models on one
+   * credential and read the returned remaining-counters. If they fall
+   * monotonically the budget is shared; if each reports its own near-full
+   * budget, they are independent.
+   *
+   * Verified 2026-09-04 — Groq, four models, one credential:
+   *   gpt-oss-20b   999/1000 requests, 7760/8000 tokens
+   *   gpt-oss-120b  999/1000 requests, 7760/8000 tokens
+   *   qwen3.6-27b   999/1000 requests, 7822/8000 tokens
+   *   qwen3.8-27b   999/1000 requests, 7820/8000 tokens
+   * Shared buckets would have shown 996 requests by the fourth call.
+   */
+  perModelLimits?: boolean;
+  /** Models metered separately. Required when perModelLimits is true. */
+  models?: readonly string[];
 }
 
 /**
@@ -41,24 +61,52 @@ export const PROVIDER_CREDENTIALS: readonly ProviderCredentialConfig[] = [
   {
     providerId: "groq",
     envVar: "GROQ_API_KEY",
-    // Per model; the pool tracks the per-key envelope conservatively.
-    limits: { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200_000 },
+    /*
+     * PER MODEL, verified. 8 credentials x 4 dialogue models = 32 independent
+     * buckets. Metering this as one bucket per credential used 25% of Groq.
+     *
+     * `tpd` is deliberately ABSENT: Groq exposes no tokens-per-day header, and
+     * the previous 200_000 value was invented. An imaginary ceiling throttles
+     * real capacity, so a limit we cannot observe is not declared.
+     */
+    limits: { rpm: 30, rpd: 1000, tpm: 8000 },
+    perModelLimits: true,
+    models: GROQ_DIALOGUE_MODELS,
   },
   {
     providerId: "openrouter",
     envVar: "OPENROUTER_API_KEY",
-    // Free endpoints cap requests, not tokens — which is why they scale a beta
-    // better than token-capped providers (ADR-011).
+    /*
+     * ACCOUNT-WIDE, not per model. The 50/day free allowance is shared across
+     * every :free endpoint on the account, so splitting it per model would
+     * invent capacity that does not exist — the mirror image of the Groq bug,
+     * and the more dangerous direction to get wrong.
+     *
+     * Free endpoints cap requests rather than tokens, which is why they scale a
+     * beta better than token-capped providers (ADR-011).
+     */
     limits: { rpm: 20, rpd: 50 },
   },
   {
     providerId: "gemini",
     envVar: "GEMINI_API_KEY",
+    // Per model per project. DEVELOPMENT ONLY — Gemini unpaid terms use
+    // submitted content for training (ADR-009), so checkPoolEligibility keeps
+    // it out of any pool that serves users.
     limits: { rpm: 15, rpd: 1500 },
+    perModelLimits: true,
+    models: GEMINI_DEV_MODELS,
   },
   {
     providerId: "nvidia",
     envVar: "NVIDIA_NIM_API_KEY",
+    /*
+     * DEVELOPMENT ONLY — the API Trial ToS forbids production outright
+     * (ADR-013, §1.2 and §1.4), independently of the privacy question.
+     *
+     * Not declared per-model: NVIDIA publishes no per-model limits we have
+     * verified, and inventing them would overstate capacity.
+     */
     limits: { rpm: 40 },
   },
   {
@@ -72,6 +120,8 @@ export const PROVIDER_CREDENTIALS: readonly ProviderCredentialConfig[] = [
 interface StoredCredential {
   state: CredentialState;
   key: string;
+  /** The underlying credential, shared by every model bucket that uses it. */
+  credentialName: string;
 }
 
 export class CredentialRegistry {
@@ -88,15 +138,37 @@ export class CredentialRegistry {
         .map((k) => k.trim())
         .filter((k) => k.length > 0);
 
-      const stored = keys.map((key, i) => ({
-        key,
-        state: createCredentialState(
-          `${config.providerId}-${String(i + 1)}`,
-          config.providerId,
-          config.limits,
-          now,
-        ),
-      }));
+      /*
+       * One bucket per (credential x model) where the provider meters that way,
+       * otherwise one per credential. This is the whole fix: capacity identity
+       * must match how the provider actually meters, or we either waste real
+       * capacity (Groq) or invent capacity that is not there (OpenRouter).
+       */
+      const stored: StoredCredential[] = [];
+      for (const [i, key] of keys.entries()) {
+        const credName = `${config.providerId}-${String(i + 1)}`;
+        if (config.perModelLimits === true && config.models !== undefined) {
+          for (const modelId of config.models) {
+            stored.push({
+              key,
+              credentialName: credName,
+              state: createCredentialState(
+                `${credName}::${modelId}`,
+                config.providerId,
+                config.limits,
+                now,
+                modelId,
+              ),
+            });
+          }
+        } else {
+          stored.push({
+            key,
+            credentialName: credName,
+            state: createCredentialState(credName, config.providerId, config.limits, now, null),
+          });
+        }
+      }
 
       if (stored.length > 0) this.pools.set(config.providerId, stored);
     }
@@ -120,13 +192,26 @@ export class CredentialRegistry {
     providerId: string,
     estimatedTokens = 0,
     now: number = Date.now(),
+    modelId?: string,
   ):
     | { ok: true; id: string; key: string }
     | { ok: false; reason: string; retryAt?: number } {
-    const stored = this.pools.get(providerId);
-    if (!stored || stored.length === 0) {
+    const all = this.pools.get(providerId);
+    if (!all || all.length === 0) {
       return { ok: false, reason: "no_credentials" };
     }
+
+    /*
+     * Narrow to one model's buckets when the caller names a model and this
+     * provider meters per model. Without this the pool could hand back a bucket
+     * metering a DIFFERENT model's budget, and the accounting would drift from
+     * what the provider actually enforces.
+     */
+    const stored =
+      modelId === undefined
+        ? all
+        : all.filter((s) => s.state.modelId === null || s.state.modelId === modelId);
+    if (stored.length === 0) return { ok: false, reason: "no_bucket_for_model" };
 
     const result = selectCredential(
       stored.map((s) => s.state),

@@ -102,6 +102,12 @@ export interface GenerateRequest {
   };
 }
 
+export type FallbackReason =
+  | "RATE_LIMITED"
+  | "BUDGET_EXCEEDED"
+  | "NO_CREDENTIAL"
+  | "PROVIDER_ERROR";
+
 export interface GenerateResponse {
   text: string;
   toolCalls: ToolCall[];
@@ -125,6 +131,7 @@ export interface GenerateResponse {
   ttfbMs: number | null;
   attempt: number;
   fallbackFrom: string | null;
+  fallbackReason?: FallbackReason | null;
 }
 
 export type StreamChunk =

@@ -13,6 +13,7 @@
 
 export * from "./ai/pool-guard.js";
 export * from "./ai/credential-pool.js";
+export * from "./ai/capacity-scheduler.js";
 export * from "./memory/weights.js";
 export * from "./memory/text.js";
 export * from "./memory/scoring.js";

@@ -20,6 +20,10 @@ export {
   GROQ_FREE_REQUEST_CEILING,
   type GroqConfig,
 } from "./providers/groq.js";
+export {
+  OpenRouterProvider,
+  type OpenRouterConfig,
+} from "./providers/openrouter.js";
 export { probePrompt, type PromptProbe } from "./providers/prompt-probe.js";
 export { fnv1a, unitHash, pick } from "./providers/hash.js";
 
@@ -29,3 +33,5 @@ export {
   PROVIDER_CREDENTIALS,
   type ProviderCredentialConfig,
 } from "./credentials.js";
+
+export * from "./registry/models.js";
