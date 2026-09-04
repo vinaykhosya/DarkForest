@@ -19,6 +19,8 @@
     "lab": "tsx packages/evals/src/cli.ts",
     "eval": "tsx packages/evals/src/run.ts",
     "routing:smoke": "tsx packages/evals/src/routing-smoke.ts",
+    "cf:verify": "tsx packages/evals/src/cf-verify.ts",
+    "extract:probe": "tsx packages/evals/src/extraction-probe.ts",
     "suite1": "tsx packages/evals/src/suite1.ts",
     "gate": "tsx packages/evals/src/gate.ts",
     "embed:compare": "tsx packages/evals/src/embed-compare.ts",
