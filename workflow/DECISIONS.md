@@ -702,6 +702,59 @@ given a reranker that could tolerate a diluted query.
 
 ---
 
+### ADR-026 - The evaluation contract is frozen and independently tested
+**2026-09-05 . Accepted**
+
+**Context.** Four consecutive measurement bugs, each living in the
+instrumentation written to validate the previous change, each UNDER-reporting a
+working system:
+
+  1. recall@k conflated with answer accuracy   Ravenhold read 0%, was 100%
+  2. validity divided by responses that PARSED 66 failures read 100%
+  3. a correct empty extraction scored as fail 85% capture read 15%
+  4. the matcher never read `quantity`         a perfect event read MISSED
+
+The failure mode is not a benchmark that breaks. It is a benchmark that reports
+a PLAUSIBLE wrong number, in the range where it gets believed and acted on. Bug
+3 sent an entire investigation toward "extraction is broken" when extraction was
+at 85%. Bug 1 nearly caused retrieval to be rewritten.
+
+There is also a compounding risk: change architecture, benchmark says bad, fix
+benchmark, benchmark says better, find benchmark bug, fix benchmark. At some
+point the measurement system is what is being optimised.
+
+**Decision.** Every definition a benchmark result depends on lives in one module,
+`packages/evals/src/contract/evaluation-contract.ts`, which imports TYPES ONLY.
+It cannot reference the extraction, retrieval or projection code it judges, so
+the evaluator cannot drift toward the implementation it is meant to check.
+
+Frozen definitions: planted fact, correct extraction, correct EMPTY extraction,
+malformed extraction, the matching rule (including numbers in digit and word
+form), extraction health, fact capture, recall@k.
+
+Each of the four historical bugs has a regression test that fails against the
+code that shipped it. 13 tests.
+
+Two rules follow. Harnesses use the contract's matcher and no local one - every
+local matcher so far grew a false negative. And changing anything in the contract
+invalidates comparison with earlier runs, which is the point: a definition change
+must be as visible as an architecture change.
+
+**What the contract explicitly does NOT measure**, recorded so nobody infers
+otherwise: semantic correctness (the matcher is a substring proxy and an
+inverted fact can pass - there is a test asserting this); associative recall
+(every Suite 1 fact is typed, so a structured store answers by lookup, which
+makes Suite 1 a test of EXTRACTION once structured resolution is in play);
+production concurrency.
+
+**Trade-off.** Comparisons across a contract version boundary are invalid, and
+the frozen matcher is cruder than a judge would be. Both are accepted: a crude
+measure that cannot silently change beats a sophisticated one that can.
+
+**Revisit.** Only with a version bump and a restated baseline.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

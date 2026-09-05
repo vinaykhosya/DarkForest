@@ -22,6 +22,12 @@ import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkfores
 import type { WorldEvent } from "@darkforest/contracts";
 import { project } from "@darkforest/core";
 import { extractEvents, type ExtractionOutcomeKind } from "@darkforest/memory";
+import {
+  capturesFact,
+  extractionHealth,
+  factCaptureRate,
+  type AttemptOutcome,
+} from "./contract/evaluation-contract.js";
 import { SchedulerRouter } from "./scheduler-router.js";
 import { SUITE1 } from "./worlds/suite1.js";
 
@@ -147,20 +153,14 @@ async function main(): Promise<void> {
     // Fact-bearing turns are the only ones whose success is knowable.
     const fact = factTurns.get(i);
     if (fact !== undefined) {
-      // `quantity` belongs here. Leaving it out marked f14 as MISSED when the
-      // event was perfect — {numeric_stated, "guards at the keep", quantity: 9}
-      // — because "9" lived in a number field the matcher never read. Fourth
-      // time a metric in this area has under-reported a working system; the
-      // matcher must see every field an expectation could land in.
-      const blob = produced
-        .map(
-          (e) =>
-            `${e.type} ${e.actor} ${e.target ?? ""} ${e.object ?? ""} ${e.value ?? ""} ` +
-            (e.quantity === null ? "" : String(e.quantity)),
-        )
-        .join(" ")
-        .toLowerCase();
-      const captured = fact.expect.some((n) => blob.includes(n.toLowerCase()));
+      // The ONE matcher, from the frozen contract (ADR-026). Not a local blob:
+      // every previous local matcher grew a false negative.
+      const captured = capturesFact(produced, {
+        id: fact.id,
+        plantedAt: fact.plantedAt,
+        kind: fact.kind,
+        expect: fact.expect,
+      });
       factOutcomes.push({ factId: fact.id, turn: turnNumber, outcome, captured });
       process.stdout.write(captured ? "+" : "!");
     } else {
@@ -195,13 +195,22 @@ async function main(): Promise<void> {
     );
   }
 
+  const health = extractionHealth(
+    [...outcomes.entries()].flatMap(([k, v]) => Array<AttemptOutcome>(v).fill(k as AttemptOutcome)),
+  );
+  console.log(
+    `
+  HEALTH  ${health.health.toFixed(0)}% correct behaviour  ` +
+      `(accepted + correctly empty), format failures ${health.formatFailureRate.toFixed(0)}%`,
+  );
+
   // ── the number that matters ───────────────────────────────────────────────
-  const captured = factOutcomes.filter((f) => f.captured).length;
+  const capture = factCaptureRate(factOutcomes);
   console.log("\n" + "-".repeat(74));
   console.log("FACT CAPTURE — the metric that actually means something");
   console.log(
-    `  ${String(captured)} of ${String(factOutcomes.length)} planted facts became a correct event  ` +
-      `(${((captured / Math.max(1, factOutcomes.length)) * 100).toFixed(0)}%)`,
+    `  ${String(capture.captured)} of ${String(capture.total)} planted facts became a correct event  ` +
+      `(${capture.rate.toFixed(0)}%)`,
   );
   const missed = factOutcomes.filter((f) => !f.captured);
   if (missed.length > 0) {
