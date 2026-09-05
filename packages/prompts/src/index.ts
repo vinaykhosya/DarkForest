@@ -52,3 +52,9 @@ export {
   EXTRACT_EVENTS_PROMPT_VERSION,
   type ExtractEventsInput,
 } from "./extract-events.v1.js";
+
+export {
+  renderExtractEventsV2Prompt,
+  EXTRACT_EVENTS_V2_VERSION,
+  type ExtractEventsV2Input,
+} from "./extract-events.v2.js";

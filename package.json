@@ -23,6 +23,8 @@
     "suite1:ab": "tsx packages/evals/src/suite1-ab.ts",
     "event:diag": "tsx packages/evals/src/event-diag.ts",
     "pacing": "tsx packages/evals/src/pacing-experiment.ts",
+    "fact:probe": "tsx packages/evals/src/fact-turn-probe.ts",
+    "selectivity": "tsx packages/evals/src/selectivity-ab.ts",
     "extract:probe": "tsx packages/evals/src/extraction-probe.ts",
     "suite1": "tsx packages/evals/src/suite1.ts",
     "gate": "tsx packages/evals/src/gate.ts",

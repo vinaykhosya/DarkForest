@@ -5,7 +5,7 @@ import {
   type ProposedEvent,
   type WorldEvent,
 } from "@darkforest/contracts";
-import { renderExtractEventsPrompt } from "@darkforest/prompts";
+import { renderExtractEventsPrompt, renderExtractEventsV2Prompt } from "@darkforest/prompts";
 import { normaliseKey } from "@darkforest/core";
 
 /**
@@ -26,6 +26,11 @@ export interface EventExtractionInput {
   sourceTurn: number;
   /** Next sequence number for this world. Callers keep it monotonic. */
   nextSeq: number;
+  /**
+   * Which selection prompt to use. Defaults to v1 so no existing caller
+   * changes behaviour; the A/B passes both to compare them on one workload.
+   */
+  promptVariant?: "v1" | "v2";
 }
 
 export interface EventRejection {
@@ -159,7 +164,9 @@ export async function extractEvents(
   model: ModelDescriptor,
   input: EventExtractionInput,
 ): Promise<EventExtractionOutcome> {
-  const prompt = renderExtractEventsPrompt({
+  const render =
+    input.promptVariant === "v2" ? renderExtractEventsV2Prompt : renderExtractEventsPrompt;
+  const prompt = render({
     transcript: input.transcript,
     worldDay: input.worldDay,
     knownEntities: input.knownEntities,
