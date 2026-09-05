@@ -71,6 +71,23 @@ export interface EventExtractionOutcome {
   outcome: ExtractionOutcomeKind;
   /** True when the provider stopped on length rather than finishing. */
   truncated: boolean;
+  /**
+   * Diagnostic context, populated only on failure.
+   *
+   * Present because "20% unparseable" is not a diagnosis. Truncation, a leaked
+   * reasoning preamble, a markdown fence and a genuinely malformed object all
+   * arrive as the same bucket and have different fixes, and guessing which
+   * without looking is how the last four investigations started wrong.
+   */
+  debug?: {
+    rawOutput: string;
+    finishReason: string;
+    modelId: string;
+    promptTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    windowTurns: number;
+  };
 }
 
 function tryParse(text: string): unknown {
@@ -175,6 +192,16 @@ export async function extractEvents(
   usage.inputTokens += res.usage.inputTokens;
   usage.outputTokens += res.usage.outputTokens + (res.usage.reasoningTokens ?? 0);
 
+  const debug = {
+    rawOutput: res.text,
+    finishReason: res.finishReason,
+    modelId: model.id,
+    promptTokens: res.usage.inputTokens,
+    outputTokens: res.usage.outputTokens,
+    reasoningTokens: res.usage.reasoningTokens ?? 0,
+    windowTurns: input.transcript.length,
+  };
+
   // Distinguished from a format failure: the model was doing the right thing and
   // ran out of room, which is a budget fix rather than a prompt fix.
   const truncated = res.finishReason === "length";
@@ -193,13 +220,23 @@ export async function extractEvents(
       attempted: 1,
       outcome: truncated ? "truncated" : "unparseable",
       truncated,
+      debug,
     };
   }
 
   const parsed = EventExtractionSchema.safeParse(raw);
   if (!parsed.success) {
     rejected.push({ reason: "schema", detail: parsed.error.issues[0]?.message ?? "schema mismatch" });
-    return { events: [], rejected, usage, proposed: 0, attempted: 1, outcome: "schema", truncated };
+    return {
+      events: [],
+      rejected,
+      usage,
+      proposed: 0,
+      attempted: 1,
+      outcome: "schema",
+      truncated,
+      debug,
+    };
   }
 
   const known = new Set([
@@ -246,5 +283,6 @@ export async function extractEvents(
     attempted: 1,
     outcome,
     truncated,
+    ...(outcome === "all_rejected" ? { debug } : {}),
   };
 }

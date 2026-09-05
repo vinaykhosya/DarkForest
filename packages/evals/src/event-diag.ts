@@ -110,6 +110,19 @@ async function main(): Promise<void> {
   const transcript: Array<{ speaker: string; content: string }> = [];
   /** Per fact-bearing turn: what the extraction did with it. */
   const factOutcomes: Array<{ factId: string; turn: number; outcome: string; captured: boolean }> = [];
+  /** Full context for every failed attempt. Classified after the run, not during. */
+  interface FailureRecord {
+    turn: number;
+    outcome: string;
+    rawOutput: string;
+    finishReason: string;
+    modelId: string;
+    promptTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    windowTurns: number;
+  }
+  const failures: FailureRecord[] = [];
 
   const started = Date.now();
   for (let i = 0; i < SUITE1.script.length; i++) {
@@ -141,6 +154,9 @@ async function main(): Promise<void> {
       seq += ev.events.length;
       for (const r of ev.rejected) {
         rejectionReasons.set(r.reason, (rejectionReasons.get(r.reason) ?? 0) + 1);
+      }
+      if (ev.debug !== undefined) {
+        failures.push({ turn: turnNumber, outcome: ev.outcome, ...ev.debug });
       }
     } catch {
       callFailures += 1;
@@ -249,11 +265,27 @@ async function main(): Promise<void> {
 
   console.log("\n" + "=".repeat(74) + "\n");
 
+  // ── failure forensics ─────────────────────────────────────────────────────
+  if (failures.length > 0) {
+    console.log("\n" + "-".repeat(74));
+    console.log(`FAILURE FORENSICS — ${String(failures.length)} attempts, full context`);
+    for (const f of failures) {
+      const raw = f.rawOutput;
+      console.log(
+        `\n  turn ${String(f.turn)}  ${f.outcome}  ` +
+          `finish=${f.finishReason}  model=${f.modelId.split("/").pop() ?? ""}  ` +
+          `prompt=${String(f.promptTokens)} out=${String(f.outputTokens)} ` +
+          `reasoning=${String(f.reasoningTokens)} window=${String(f.windowTurns)}`,
+      );
+      console.log(`    len=${String(raw.length)}  raw=${JSON.stringify(raw.slice(0, 220))}`);
+    }
+  }
+
   mkdirSync("docs/benchmarks/runs", { recursive: true });
   writeFileSync(
     `docs/benchmarks/runs/${new Date().toISOString().slice(0, 10)}-event-diag.json`,
     JSON.stringify(
-      { outcomes: [...outcomes], rejections: [...rejectionReasons], factOutcomes, events },
+      { outcomes: [...outcomes], rejections: [...rejectionReasons], factOutcomes, failures, events },
       null,
       2,
     ),
