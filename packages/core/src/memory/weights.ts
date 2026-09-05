@@ -11,7 +11,7 @@ import type { MemoryKind } from "@darkforest/contracts";
  * that "who changed the ranking and why" is always answerable.
  */
 
-export const RANKING_WEIGHTS_VERSION = 1;
+export const RANKING_WEIGHTS_VERSION = 2;
 
 export interface RankingWeights {
   /** Necessary but not sufficient — pure vector search retrieves plausible irrelevance. */
@@ -30,13 +30,49 @@ export interface RankingWeights {
   redundancy: number;
 }
 
+/**
+ * Version 2 — relevance to the QUESTION dominates; everything else is a
+ * tie-break among memories that are already relevant.
+ *
+ * MEASURED, Suite 1, 2026-09-05. Version 1 failed the gate at 67.4% median and
+ * recall degraded monotonically as the store grew (78% at 10-19 memories, 33%
+ * at 50-59). Instrumenting the retrieval funnel showed why:
+ *
+ *   42 of 47 failures  lost on score   (the memory WAS a candidate, and lost)
+ *    3                 evicted by MMR
+ *    2                 never extracted
+ *
+ * and the memories that displaced the correct answer drew their score from:
+ *
+ *   recency             24%  }
+ *   importance          23%  }  query-INDEPENDENT  74%
+ *   characterRelevance  18%  }
+ *   accessBoost          9%  }
+ *   similarity          20%  }  query-dependent    26%
+ *   topicOverlap         6%  }
+ *
+ * A retrieval ranker in which three quarters of the winning score is unrelated
+ * to the question is not ranking, it is sorting. It works while the store is
+ * small enough that everything relevant fits in the context anyway, and fails
+ * exactly when retrieval starts to matter — which is the failure we measured.
+ *
+ * So the split is inverted to roughly 70/30 in favour of query relevance.
+ * Importance, recency and character-relevance remain real signals: given two
+ * memories that both answer the question, prefer the important, recent one
+ * about this character. They are tie-breakers, and version 1 had them deciding.
+ *
+ * characterRelevance drops furthest on purpose. Knowledge isolation is already
+ * enforced as a WHERE clause in the store (docs/04 § 5), so every candidate is
+ * one this character may recall. Weighting it heavily again in scoring
+ * double-counts a constraint that has already been applied.
+ */
 export const DEFAULT_RANKING_WEIGHTS: Readonly<RankingWeights> = Object.freeze({
-  similarity: 0.3,
-  recency: 0.15,
-  importance: 0.2,
-  characterRelevance: 0.15,
-  topicOverlap: 0.1,
-  accessBoost: 0.05,
+  similarity: 0.55,
+  topicOverlap: 0.15,
+  importance: 0.12,
+  recency: 0.08,
+  characterRelevance: 0.07,
+  accessBoost: 0.03,
   pinned: 1.0,
   redundancy: 0.25,
 });

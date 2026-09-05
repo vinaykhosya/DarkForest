@@ -1,7 +1,9 @@
 import { estimateTokens } from "@darkforest/core";
 
 /**
- * Memory extraction prompt, version 1 — docs/04 § 4.
+ * Memory extraction prompt — docs/04 § 4. Current version in
+ * EXTRACT_PROMPT_VERSION below; the filename is the module's identity, not the
+ * prompt's, so it does not move when the prompt is revised.
  *
  * Deliberately has NO creative framing and no character identity. Creativity is
  * the enemy of extraction: a model in storytelling mode invents memories that
@@ -14,7 +16,22 @@ import { estimateTokens } from "@darkforest/core";
  * and drowns retrieval in trivia.
  */
 
-export const EXTRACT_PROMPT_VERSION = "extract/v1";
+/**
+ * Bumped from v1 when questions and refusals were added to RECORD.
+ *
+ * Suite 1's f16 ("I ask Elena who sealed the room on the upper floor") was
+ * stored 0% of the time across every run and every infrastructure generation.
+ * It was not a model failure: the prompt listed ten categories of durable fact
+ * and a question was none of them, and all four worked examples were positive
+ * declarative assertions. The model was following instructions.
+ *
+ * f03 ("I refuse to lie, to anyone, ever") is the same shape — a commitment
+ * expressed as a negation, which "stated likes, dislikes and fears" does not
+ * clearly cover.
+ *
+ * Versioned so a recall regression can be bisected to the prompt (docs/15 § 5).
+ */
+export const EXTRACT_PROMPT_VERSION = "extract/v2";
 
 export interface ExtractPromptInput {
   /** The rolling window, oldest first, already speaker-labelled. */
@@ -46,7 +63,14 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
     ``,
     `RECORD: promises and oaths · betrayals · deaths · departures and arrivals ·`,
     `revealed secrets · relationship changes · stated likes, dislikes and fears ·`,
-    `possessions gained or lost · plans announced · facts about people or places.`,
+    `possessions gained or lost · plans announced · facts about people or places ·`,
+    `questions asked, whether or not they were answered · refusals and things`,
+    `someone has sworn NOT to do.`,
+    ``,
+    `A question is durable. "What did I ask her about?" is a question a player`,
+    `expects answered weeks later, and an unanswered one is a thread the world is`,
+    `still holding. A refusal is durable for the same reason a promise is: it`,
+    `binds future behaviour. Record what was refused, not the sentiment behind it.`,
     ``,
     `Worked examples — these all earn a memory:`,
     `  "I tell Elena I own Ravenblade, taken from the dungeon"`,
@@ -57,6 +81,10 @@ export function renderExtractPrompt(input: ExtractPromptInput): {
     `     -> "The user dislikes coriander."`,
     `  "I found the study door locked from the inside"`,
     `     -> "The user found the study door locked from the inside."`,
+    `  "I ask the innkeeper who owns the old mill"`,
+    `     -> "The user asked the innkeeper who owns the old mill."`,
+    `  "I won't hand over the ledger, not to anyone"`,
+    `     -> "The user refuses to hand over the ledger to anyone."`,
     ``,
     `SKIP: pure movement with no new information, greetings, and anything already`,
     `listed under ALREADY KNOWN. If a turn genuinely contains nothing new, return`,
