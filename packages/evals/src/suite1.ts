@@ -41,7 +41,22 @@ import { SUITE1, type Suite1Fact } from "./worlds/suite1.js";
 interface ProbeOutcome {
   factId: string;
   checkpoint: string;
+  /** The fact was in the RETRIEVED set. This is recall@k (docs/15 § 3). */
   recalled: boolean;
+  /**
+   * The fact was in the STORE, whether or not retrieval surfaced it.
+   *
+   * Without this, `recalled: false` is ambiguous between two failures with
+   * opposite fixes: the memory was never extracted, or it was extracted and
+   * out-ranked. The 3-rep gate produced ten facts that scored `Y..` at turn 100
+   * — recalled in run 1, missed in runs 2 and 3, with ZERO extraction drops —
+   * and no way to tell which half of the pipeline lost them.
+   */
+  inStore: boolean;
+  /** Rank of the matching memory in the retrieved set, or null if absent. */
+  rank: number | null;
+  storeSize: number;
+  retrieved: number;
 }
 
 interface RunResult {
@@ -159,9 +174,22 @@ async function runOnce(
       tokenBudget: COMPACT_PROFILE.memories,
       maxMemories: 8,
     });
-    const text = r.memories.map((m) => m.memory.content).join(" ").toLowerCase();
-    const recalled = fact.expect.some((n) => text.includes(n.toLowerCase()));
-    probes.push({ factId: fact.id, checkpoint, recalled });
+    const hits = (content: string): boolean =>
+      fact.expect.some((n) => content.toLowerCase().includes(n.toLowerCase()));
+
+    const rank = r.memories.findIndex((m) => hits(m.memory.content));
+    // Same matcher against the whole store: separates "never extracted" from
+    // "extracted but out-ranked". Those have opposite fixes.
+    const all = await store.allByWorld(SUITE1.id);
+    probes.push({
+      factId: fact.id,
+      checkpoint,
+      recalled: rank >= 0,
+      inStore: all.some((m) => hits(m.content)),
+      rank: rank >= 0 ? rank : null,
+      storeSize: all.length,
+      retrieved: r.memories.length,
+    });
   };
 
   for (let i = 0; i < SUITE1.script.length; i++) {
@@ -611,24 +639,59 @@ ABORTED — the embedding provider is not usable, so recall cannot be measured.
 
   console.log("\n" + "─".repeat(72));
   console.log("PER-FACT RECALL — which facts are actually failing");
-  const factHits = new Map<string, { hit: number; total: number; kind: string; q: string }>();
+  const factHits = new Map<
+    string,
+    { hit: number; total: number; inStore: number; kind: string; q: string }
+  >();
   for (const r of results) {
     for (const p of r.probes) {
       const fact = SUITE1.facts.find((f) => f.id === p.factId);
       if (!fact) continue;
-      const e = factHits.get(p.factId) ?? { hit: 0, total: 0, kind: fact.kind, q: fact.question };
+      const e = factHits.get(p.factId) ?? {
+        hit: 0,
+        total: 0,
+        inStore: 0,
+        kind: fact.kind,
+        q: fact.question,
+      };
       e.total += 1;
       if (p.recalled) e.hit += 1;
+      if (p.inStore) e.inStore += 1;
       factHits.set(p.factId, e);
     }
   }
   const sorted = [...factHits.entries()].sort(
     (a, b) => a[1].hit / a[1].total - b[1].hit / b[1].total,
   );
+  console.log("  (stored = the fact was in the store; recall = retrieval surfaced it)");
   for (const [id, e] of sorted) {
     const rate = (e.hit / e.total) * 100;
+    const stored = (e.inStore / e.total) * 100;
     const mark = rate >= 80 ? " " : rate >= 40 ? "~" : "✗";
-    console.log(`  ${mark} ${id} ${e.kind.padEnd(14)} ${rate.toFixed(0).padStart(3)}%  ${e.q}`);
+    // A wide gap here is a RETRIEVAL failure; a low stored figure is an
+    // EXTRACTION failure. They have opposite fixes, so never merge the columns.
+    const gap = stored - rate >= 25 ? "  << retrieval" : "";
+    console.log(
+      `  ${mark} ${id} ${e.kind.padEnd(14)} recall ${rate.toFixed(0).padStart(3)}%  ` +
+        `stored ${stored.toFixed(0).padStart(3)}%  ${e.q}${gap}`,
+    );
+  }
+
+  const allProbes = results.flatMap((r) => r.probes);
+  const storedNotRecalled = allProbes.filter((p) => p.inStore && !p.recalled).length;
+  const neverStored = allProbes.filter((p) => !p.inStore).length;
+  console.log(
+    `
+  SPLIT  ${String(storedNotRecalled)} probes stored-but-not-retrieved · ` +
+      `${String(neverStored)} never stored · ${String(allProbes.length)} total`,
+  );
+  const ranks = allProbes.map((p) => p.rank).filter((r): r is number => r !== null);
+  if (ranks.length > 0) {
+    console.log(
+      `  RANK   median ${median(ranks).toFixed(1)} of ${String(
+        Math.max(...allProbes.map((p) => p.retrieved)),
+      )} retrieved · store grows to ${String(Math.max(...allProbes.map((p) => p.storeSize)))}`,
+    );
   }
 
   // ── Multi-Provider Failover & Telemetry Audit ──────────────────────────────

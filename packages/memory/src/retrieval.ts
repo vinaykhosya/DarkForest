@@ -58,17 +58,65 @@ export interface RetrievalOutput {
 }
 
 /**
+ * Words too common to tell one memory from another. Small on purpose: this
+ * decides only whether a message can stand as its own query.
+ */
+const STOPWORDS = new Set([
+  "the", "and", "but", "for", "you", "your", "our", "her", "his", "its", "was",
+  "were", "are", "did", "does", "have", "has", "had", "what", "who", "whom",
+  "when", "where", "why", "how", "that", "this", "these", "those", "with",
+  "from", "into", "about", "there", "then", "than", "them", "they",
+]);
+
+function contentWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+}
+
+/**
+ * Below this, a message cannot retrieve on its own and must be widened.
+ *
+ * Two, not three. "What did I promise Odell?" reduces to {promise, odell} — a
+ * perfectly specific query that a threshold of three would have widened and
+ * ruined. Reply-shaped turns are the ones that need help and they score zero:
+ * "yes", "ok", "and then what", "he did" all reduce to nothing.
+ */
+const SELF_SUFFICIENT_QUERY_WORDS = 2;
+
+/**
  * Builds the retrieval query.
  *
- * Deliberately NOT the bare user message: a reply of "yes" retrieves nothing on
- * its own. Widening with recent lines and the scene gives short turns something
- * to match against.
+ * TWO queries, deliberately, because the two search paths fail in opposite ways.
+ *
+ * `text` is widened with recent lines and the scene, because a reply of "yes"
+ * retrieves nothing on its own. Extra terms cost a keyword search almost
+ * nothing: it matches terms independently, so widening adds recall.
+ *
+ * `vectorText` is NOT widened when the message can stand alone. An embedding is
+ * a single averaged point, so appending two lines of narrative prose to a short
+ * question moves that point away from the question and towards whatever was
+ * recently said. The retrieved set then reflects the recent topic instead of the
+ * thing being asked.
+ *
+ * MEASURED 2026-09-05, Suite 1. Probing the SAME 38-memory store:
+ *   mid-session (recentLines populated)   3/19 recalled
+ *   fresh session (recentLines empty)     4/5  recalled
+ * 31 of 43 failed probes were stored-but-not-retrieved, and when a fact did
+ * surface it ranked first — so the memory was not being ranked poorly, it was
+ * missing from the candidate set entirely. Widening the vector query was the
+ * whole gap.
  *
  * Entity extraction is regex against a per-world alias list, not an LLM call —
  * names are the highest-signal retrieval term and exact matching finds them
  * better than embeddings do (docs/04 § 5, docs/01 § P4).
  */
-export function buildQuery(input: RetrievalInput): { text: string; entities: string[] } {
+export function buildQuery(input: RetrievalInput): {
+  text: string;
+  vectorText: string;
+  entities: string[];
+} {
   const parts = [input.userMessage, ...(input.recentLines ?? []).slice(-2)];
   if (input.sceneSummary !== undefined && input.sceneSummary.length > 0) {
     parts.push(input.sceneSummary);
@@ -79,7 +127,13 @@ export function buildQuery(input: RetrievalInput): { text: string; entities: str
     haystack.includes(alias.toLowerCase()),
   );
 
-  return { text: [...parts, ...entities].join(" "), entities };
+  const widened = [...parts, ...entities].join(" ");
+  // Entities stay on the vector query even when narrow: a name is the strongest
+  // signal available and costs one token, unlike a paragraph of prose.
+  const standalone = [input.userMessage, ...entities].join(" ");
+  const selfSufficient = contentWords(input.userMessage).length >= SELF_SUFFICIENT_QUERY_WORDS;
+
+  return { text: widened, vectorText: selfSufficient ? standalone : widened, entities };
 }
 
 export async function retrieve(
@@ -98,7 +152,7 @@ export async function retrieve(
   // extraction. That is a degradation, not an error.
   let vectorResults: MemoryCandidate[] = [];
   try {
-    const [queryVector] = await embedder.embed([query.text]);
+    const [queryVector] = await embedder.embed([query.vectorText]);
     if (queryVector) {
       vectorResults = await store.vectorSearch(
         input.worldId,

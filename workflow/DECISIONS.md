@@ -639,6 +639,69 @@ for work unrelated to retrieval. That is the intended cost.
 
 ---
 
+### ADR-024 - The vector query and the keyword query are not the same query
+**2026-09-05 . Accepted**
+
+**Context.** With capacity healthy, extraction competent and embeddings live,
+Suite 1 still scored 47% median. The failures were not where anyone assumed.
+
+Adding one diagnostic - does the expected fact exist in the STORE, as opposed to
+in the RETRIEVED set - split 43 failed probes into 31 stored-but-not-retrieved
+and 3 never stored. Extraction was fine. Retrieval was losing the memories.
+
+The decisive measurement probed the SAME 38-memory store two ways:
+
+  mid-session, recentLines populated    3/19 recalled
+  fresh session, recentLines empty      4/5  recalled
+
+And when a fact did surface it ranked first. So ranking was not subtly wrong;
+the memory was absent from the candidate set entirely.
+
+**Cause.** `buildQuery` widened the query with the last two lines of dialogue and
+handed that single blob to BOTH search paths. For the keyword path that is
+harmless and helpful. For the vector path it is fatal: an embedding is one
+averaged point, so appending two lines of narrative prose to a short question
+drags the point away from the question and towards whatever was recently said.
+Retrieval returned what was topically recent instead of what was asked.
+
+The widening itself was correct and necessary - a reply of "yes" retrieves
+nothing on its own. The error was applying one query to two paths that fail in
+opposite directions.
+
+**Decision.** `buildQuery` returns `text` and `vectorText`. The keyword path
+keeps the widened text. The vector path gets the user message alone whenever it
+carries at least two content words, plus any extracted entity names, which are
+high signal and cost one token each. Below that threshold the message cannot
+retrieve on its own and the widened text is used.
+
+Two content words, not three: "What did I promise Odell?" reduces to
+{promise, odell}, and a threshold of three would have widened a perfectly
+specific question. Reply-shaped turns score zero.
+
+**Measured.** Same fixture, same store, one repetition:
+
+  recall@k                 21% -> 84%
+  stored-but-not-retrieved  31 -> 4
+  memories stored           38 -> 53
+  reroutes                  11 -> 0
+
+**Trade-off.** Two queries means two things to keep consistent, and the
+content-word threshold is a heuristic that will need revisiting for languages
+with different function-word density. A stopword list in retrieval is a small
+piece of English-specific logic in an otherwise language-neutral path.
+
+**What this cost.** Three benchmark generations were read as memory-quality
+results before this was found: 91/84/70 (capacity-starved), 67/67 (no
+embeddings), 65/47/40 (this bug). The lesson is not about retrieval - it is that
+`recalled: false` was ambiguous between two failures with opposite fixes, and
+nobody could tell which until the store was inspected directly. Instrument the
+FORK, not just the outcome.
+
+**Revisit.** If a non-English world is supported, or if the vector path is ever
+given a reranker that could tolerate a diluted query.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
