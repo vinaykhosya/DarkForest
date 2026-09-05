@@ -190,6 +190,39 @@ interface GroqResponse {
   };
 }
 
+/**
+ * Removes a reasoning trace that leaked into `content`.
+ *
+ * gpt-oss normally returns reasoning in its own `reasoning` field — verified
+ * against the raw API, which puts it there even at reasoning_effort=low. Under
+ * sustained load it sometimes emits the trace into content instead, opening with
+ * "<think>" or "Here's a thinking process:".
+ *
+ * That artefact corrupted three separate measurements across two gauntlet runs,
+ * twice being counted as a knowledge LEAK because the trace quoted words the
+ * probe had forbidden. Stripping it belongs here rather than in each harness:
+ * it is provider output normalisation, and every caller otherwise reimplements
+ * it slightly differently — which is exactly how the isolation rule went wrong.
+ *
+ * Deliberately conservative. Only a trace at the START of the response is
+ * removed, and only when what follows is non-empty, so a reply that merely
+ * discusses thinking is untouched.
+ */
+export function stripReasoningTrace(text: string): string {
+  let out = text;
+
+  const tagged = /^\s*<think>[\s\S]*?<\/think>\s*/i.exec(out);
+  if (tagged !== null) out = out.slice(tagged[0].length);
+
+  // An unterminated trace: the response was cut off mid-thought and there is no
+  // answer to recover. Better an empty string, which reads as a failure, than a
+  // paragraph of deliberation presented as a character's words.
+  if (/^\s*<think>/i.test(out)) return "";
+  if (/^\s*(here's|here is) (a |my )?thinking process/i.test(out)) return "";
+
+  return out.trim().length > 0 ? out : text;
+}
+
 export class GroqProvider implements AIProvider {
   readonly id = "groq";
   readonly enabled = true;
@@ -328,7 +361,7 @@ export class GroqProvider implements AIProvider {
     this.config.onSuccess?.(credential.id, inputTokens + outputTokens);
 
     return {
-      text: choice?.message?.content ?? "",
+      text: stripReasoningTrace(choice?.message?.content ?? ""),
       toolCalls: this.parseToolCalls(choice),
       finishReason: this.mapFinishReason(choice?.finish_reason),
       usage: { inputTokens, outputTokens, reasoningTokens },

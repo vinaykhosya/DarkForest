@@ -73,12 +73,37 @@ describe("isolation fails closed", () => {
     expect(canRecall(told, "Ronan")).toBe(false);
   });
 
-  it("treats a bridge falling as public, because it is", () => {
+  it("does not make a world_event public just because nobody was named", () => {
+    /*
+     * This assertion is the REVERSE of what it said an hour ago, and the reason
+     * is the second leak.
+     *
+     * Making `observed` private was not enough. The player wrote "I see a sealed
+     * door behind the racks" and the extractor classified it as a world_event —
+     * the world contains a door — not as an observation. Empty audience, public,
+     * and a character who was never told described the door back to the player.
+     *
+     * Isolation cannot depend on the model choosing the right type. So nothing
+     * is public by default. The cost is real and accepted: a bridge collapsing
+     * in front of a whole town reaches only whoever was named.
+     */
+    const fell = ev({ type: "world_event", actor: "the world", value: "the east bridge collapsed" });
+    expect(audienceFor(fell).kind).toBe("restricted");
+    expect(canRecall(fell, "a passing stranger")).toBe(false);
+  });
+
+  it("still reaches everyone the world event actually named", () => {
     // Isolation must be a boundary, not a blanket. A world where nobody knows
     // anything is as broken as one where everybody knows everything.
-    const fell = ev({ type: "world_event", actor: "the world", value: "the east bridge collapsed" });
-    expect(audienceFor(fell).kind).toBe("public");
-    expect(canRecall(fell, "anyone at all")).toBe(true);
+    const fell = ev({
+      type: "world_event",
+      actor: "the world",
+      knownBy: ["Sera", "Bram", "the user"],
+      value: "the east bridge collapsed",
+    });
+    expect(canRecall(fell, "Sera")).toBe(true);
+    expect(canRecall(fell, "Bram")).toBe(true);
+    expect(canRecall(fell, "Tolven")).toBe(false);
   });
 
   it("narrows a world event when someone states who witnessed it", () => {

@@ -68,11 +68,25 @@ export function audienceFor(e: WorldEvent): Audience {
       who: only([e.actor, ...(e.target === null ? [] : [e.target]), ...named]),
     };
   }
-  if (e.type === "world_event") {
-    // The one genuinely public shape — a bridge falling is not a secret. A
-    // stated audience still narrows it: someone can witness a private event.
-    return named.length === 0 ? { kind: "public" } : { kind: "restricted", who: only(named) };
-  }
+  /*
+   * `world_event` USED to be public on an empty audience, and that was the hole.
+   *
+   * The player wrote "I see a sealed door behind the racks" and the extractor
+   * classified it as a world_event — the world contains a door — rather than an
+   * observation. Empty audience, public, and a character who was never told
+   * described the door back to the player. Making `observed` private did not
+   * help, because nothing forces the extractor to choose `observed`.
+   *
+   * Isolation cannot rest on the model picking the right type. So no type is
+   * public by default: an event reaches whoever it names and nobody else, and a
+   * genuinely public fact has to say who witnessed it.
+   *
+   * This over-restricts. A bridge collapsing in front of the whole town now
+   * reaches only the people the extractor named, and someone who plausibly saw
+   * it may not recall it. That direction is deliberate and cheap: a character
+   * forgetting something reads as ordinary imperfect memory, and a character
+   * repeating a secret nobody told them reads as the world being fake.
+   */
 
   /*
    * Everything else reaches whoever took part, plus anyone named. Deliberately
@@ -94,6 +108,7 @@ export function audienceFor(e: WorldEvent): Audience {
 /** Whether `who` may recall this event at all. The only isolation check. */
 export function canRecall(e: WorldEvent, who: string): boolean {
   const audience = audienceFor(e);
+  // Retained for a future explicit-broadcast type; nothing produces it today.
   if (audience.kind === "public") return true;
   const target = normaliseKey(who);
   return audience.who.some((n) => normaliseKey(n) === target);
