@@ -24,3 +24,4 @@ export * from "./memory/extraction-gate.js";
 export * from "./world/projections.js";
 export * from "./world/query-router.js";
 export * from "./world/resolver.js";
+export * from "./world/knowledge.js";

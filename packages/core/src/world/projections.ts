@@ -1,4 +1,11 @@
 import type { WorldEvent } from "@darkforest/contracts";
+import { audienceFor } from "./knowledge.js";
+
+/** The concrete audience of an event, for storing on a projection row. */
+function audienceOf(e: WorldEvent): readonly string[] {
+  const a = audienceFor(e);
+  return a.kind === "public" ? [] : a.who;
+}
 
 /**
  * PROJECTIONS — what is true now, folded from what happened (ADR-025).
@@ -258,8 +265,10 @@ export function project(events: readonly WorldEvent[]): WorldProjection {
         p.observations.push({
           observer: e.actor,
           what,
-          // Perception is private by default: seeing a beacon tells nobody else.
-          knownBy: e.knownBy.length > 0 ? e.knownBy : [e.actor],
+          // From the canonical rule, not a local copy. Two implementations of
+          // this disagreeing is what let a character recall a secret nobody
+          // told her; see world/knowledge.ts.
+          knownBy: audienceOf(e),
           worldDay: e.worldDay,
           sourceTurn: e.sourceTurn,
         });
@@ -273,7 +282,7 @@ export function project(events: readonly WorldEvent[]): WorldProjection {
           actor: e.actor,
           target: e.target,
           what,
-          knownBy: e.knownBy.length > 0 ? e.knownBy : [e.actor, ...(e.target === null ? [] : [e.target])],
+          knownBy: audienceOf(e),
           worldDay: e.worldDay,
           sourceTurn: e.sourceTurn,
         });

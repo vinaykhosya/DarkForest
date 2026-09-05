@@ -31,7 +31,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
 import type { WorldEvent } from "@darkforest/contracts";
-import { normaliseKey } from "@darkforest/core";
+import { PLAYER, recallableBy } from "@darkforest/core";
 import { extractEvents } from "@darkforest/memory";
 import { capturesFact, type PlantedFact } from "./contract/evaluation-contract.js";
 import { SchedulerRouter } from "./scheduler-router.js";
@@ -68,15 +68,15 @@ function windowFor(world: GauntletWorld, turnIndex: number): Array<{ speaker: st
   return out.slice(-6);
 }
 
-/** Whether a character actually knows about an event. Empty knownBy = public. */
-function isKnownBy(e: WorldEvent, character: string): boolean {
-  const who = normaliseKey(character);
-  if (e.knownBy.length === 0) return true;
-  if (e.knownBy.some((n) => normaliseKey(n) === who)) return true;
-  if (normaliseKey(e.actor) === who) return true;
-  if (e.target !== null && normaliseKey(e.target) === who) return true;
-  return false;
-}
+/*
+ * There is deliberately NO local knowledge rule here any more.
+ *
+ * The first run had one, and it disagreed with the projection's: an empty
+ * audience meant "public" here and "the observer only" there. The player saw a
+ * sealed door and told exactly one person; asked what she knew about that
+ * cellar, a character who was never told described the door. One rule with two
+ * implementations is what caused it, so this file now imports the only one.
+ */
 
 /** A plain-language line for one event, for feeding a character's own recollection. */
 function renderLine(e: WorldEvent): string {
@@ -130,12 +130,15 @@ async function answerAsCharacter(
   probe: GauntletProbe,
   lines: readonly string[],
 ): Promise<string> {
-  const character = world.characters.find((c) => c.id.toLowerCase() === probe.askedOf.toLowerCase()) ??
-    world.characters.find((c) => c.name.toLowerCase() === probe.askedOf.toLowerCase());
-  const persona = character?.persona ?? `${probe.askedOf}, a person in this world.`;
+  const character = world.characters.find((c) => c.name.toLowerCase() === probe.askedOf.toLowerCase());
+  const persona = character?.persona ?? "";
+  const speaker =
+    probe.perspective === "player"
+      ? "the world's own record, answering the player about their history"
+      : `${probe.askedOf}. ${persona}`;
 
   const system = [
-    `You are ${probe.askedOf}. ${persona}`,
+    `You are ${speaker}`,
     `Answer only from what you personally know, listed below. If it is not`,
     `listed, you do not know it — say so plainly rather than guessing or`,
     `inventing. Stay brief and in character. Never mention "events" or "logs".`,
@@ -204,7 +207,14 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
     if (due !== undefined) {
       for (const probe of due) {
         await sleep(DELAY);
-        const known = events.filter((e) => isKnownBy(e, probe.askedOf));
+        /*
+         * Player perspective reads the player's own life; character perspective
+         * reads only what that character was told or witnessed. Conflating them
+         * marked three CORRECT refusals as failures in the first run — asking
+         * Elena what the player told Sera, when Elena was not there.
+         */
+        const viewer = probe.perspective === "player" ? PLAYER : probe.askedOf;
+        const known = recallableBy(events, viewer);
         const asFacts: PlantedFact = {
           id: probe.id,
           plantedAt: 0,

@@ -40,7 +40,21 @@ export type Dimension =
 export interface GauntletProbe {
   id: string;
   dimension: Dimension;
-  /** Whose perspective is being asked. Isolation depends on this. */
+  /**
+   * WHICH QUERY THIS IS. The first run conflated two different things and
+   * scored correct behaviour as failure three times.
+   *
+   *   "player"    — the player's own history. "What did I see?", "What did I
+   *                 promise?" A player always has access to their own life.
+   *   "character" — what one character knows. This is where isolation is tested,
+   *                 and where "I wasn't there" is the RIGHT answer.
+   *
+   * Asking Elena what the player told Sera is a character query whose correct
+   * answer is "I don't know" — the first fixture asked it and marked the correct
+   * refusal a miss.
+   */
+  perspective: "player" | "character";
+  /** Whose perspective is being asked. Ignored when perspective is "player". */
   askedOf: string;
   question: string;
   /** At least one must appear in what comes back. */
@@ -144,7 +158,8 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-state-ring",
     dimension: "state",
-    askedOf: "Elena",
+    perspective: "player",
+    askedOf: "the user",
     question: "Who has that silver ring now?",
     expect: ["Wexley", "factor", "sold"],
     // Elena and Bram both held it earlier. Returning either is a stale answer.
@@ -155,8 +170,12 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-history-ring",
     dimension: "contradiction",
-    askedOf: "Elena",
+    perspective: "player",
+    askedOf: "the user",
     question: "Who did I give that ring to in the first place?",
+    // "Elena" only. Asked of Elena herself in the first run, she answered "you
+    // gave it to me" — correct, and scored a miss because the matcher demanded
+    // she say her own name. A player-perspective query has no such problem.
     expect: ["Elena"],
     at: 53,
     why: "The original giving is still true as history even though the ownership state has moved on. Both answers must coexist.",
@@ -164,6 +183,7 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-isolation-bram",
     dimension: "isolation",
+    perspective: "character",
     askedOf: "Bram",
     question: "What do you know about the cellar under the Bell?",
     expect: ["door", "sealed"],
@@ -173,6 +193,7 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-isolation-elena",
     dimension: "isolation",
+    perspective: "character",
     askedOf: "Elena",
     question: "What do you know about the cellar under the Bell?",
     expect: [],
@@ -184,7 +205,8 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-perception-caravan",
     dimension: "perception",
-    askedOf: "Elena",
+    perspective: "player",
+    askedOf: "the user",
     question: "Which way did I actually watch the caravan go?",
     expect: ["east"],
     forbid: ["north"],
@@ -194,7 +216,10 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-history-lie",
     dimension: "history",
-    askedOf: "Elena",
+    // Player perspective. Asked of Elena in the first run she said "I wasn't
+    // there, and you didn't tell me" — exactly right, and scored a failure.
+    perspective: "player",
+    askedOf: "the user",
     question: "What did I tell Sera about the caravan?",
     expect: ["north"],
     at: 49,
@@ -203,7 +228,10 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-relationship-tolven",
     dimension: "relationship",
-    askedOf: "Elena",
+    // Elena was not on the boat. Asking her why the player owes Tolven is a
+    // question whose correct answer is "I don't know", which is what she said.
+    perspective: "player",
+    askedOf: "the user",
     question: "Why do I owe Tolven anything?",
     expect: ["pulled", "water", "channel", "under", "saved"],
     at: 47,
@@ -212,6 +240,7 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-commitment",
     dimension: "state",
+    perspective: "character",
     askedOf: "Tolven",
     question: "Is there anything I still owe you?",
     expect: ["lantern"],
@@ -221,7 +250,10 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-perception-bells",
     dimension: "perception",
-    askedOf: "Sera",
+    // The player heard the bells; Sera did not. Under fail-closed isolation she
+    // cannot answer this, and should not be asked to.
+    perspective: "player",
+    askedOf: "the user",
     question: "Did I hear anything strange the other night?",
     expect: ["bell"],
     at: 55,
@@ -230,6 +262,8 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-longhorizon",
     dimension: "longhorizon",
+    // Bram sold it to them, so he is a legitimate witness to this one.
+    perspective: "character",
     askedOf: "Bram",
     question: "What did I buy from you when I first came here?",
     expect: ["ring", "silver"],
@@ -239,7 +273,8 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
   {
     id: "A-noise",
     dimension: "noise",
-    askedOf: "Sera",
+    perspective: "player",
+    askedOf: "the user",
     question: "What have I actually done since I arrived?",
     expect: ["ring", "ferry", "cellar", "caravan", "Tolven"],
     forbid: ["boots", "gull", "candles"],
@@ -332,6 +367,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-isolation-ronan",
     dimension: "isolation",
+    perspective: "character",
     askedOf: "Ronan",
     question: "Did anything happen between me and Ilse while you were away?",
     expect: [],
@@ -343,6 +379,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-isolation-marta",
     dimension: "isolation",
+    perspective: "character",
     askedOf: "Marta",
     question: "Has Ilse told you anything about me lately?",
     expect: ["night", "told", "Ilse"],
@@ -352,6 +389,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-boundary",
     dimension: "relationship",
+    perspective: "character",
     askedOf: "Ilse",
     question: "Is there anything you would rather I did not bring up?",
     expect: ["brother"],
@@ -361,6 +399,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-indirect",
     dimension: "indirect",
+    perspective: "character",
     askedOf: "Ilse",
     question: "What happened between us that night before Ronan got back?",
     expect: ["night", "stayed", "light"],
@@ -370,6 +409,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-relationship-change",
     dimension: "relationship",
+    perspective: "character",
     askedOf: "Ilse",
     question: "Has anything changed between us this winter?",
     expect: ["easier", "quieter", "night", "closer"],
@@ -379,6 +419,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-temporal",
     dimension: "temporal",
+    perspective: "character",
     askedOf: "Ilse",
     question: "What were we arguing about before all that?",
     expect: ["argue", "small", "apolog"],
@@ -388,6 +429,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-longhorizon",
     dimension: "longhorizon",
+    perspective: "character",
     askedOf: "Ilse",
     question: "Where was it that we first talked properly?",
     expect: ["stair"],
@@ -397,6 +439,7 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
   {
     id: "B-noise",
     dimension: "noise",
+    perspective: "character",
     askedOf: "Marta",
     question: "What has actually mattered around here this winter?",
     expect: ["Ilse", "night", "brother", "argu"],
