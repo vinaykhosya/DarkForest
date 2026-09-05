@@ -755,6 +755,79 @@ measure that cannot silently change beats a sophisticated one that can.
 
 ---
 
+### ADR-027 - Content tier is a routing dimension, not a provider choice
+**2026-09-05 . Proposed (roadmap; nothing implemented)**
+
+**Context.** Some worlds users will want are adult. Gemini's usage policies
+filter sexually explicit content and Google monitors API use for it, so Gemini
+cannot serve that tier at all. Groq's suitability is unverified. The instinct
+this corrects is to conclude "our providers forbid it, so the product cannot
+have it" - which quietly makes a hyperscaler's content policy into DarkForest's
+product roadmap.
+
+The product is not a chatbot powered by Gemini. It is persistent interactive
+worlds. **The model is replaceable infrastructure; the world is the asset.**
+
+**Decision.** Content tier becomes a routing dimension alongside task class and
+capacity, resolved by the same router that already resolves those:
+
+    ContentTier = "general" | "mature" | "restricted"
+
+`ModelDescriptor` gains eligibility per tier, verified per model in the same way
+`perModelLimits` and `verifiedTaskClasses` were - measured or read from terms,
+never assumed. A model page advertising itself as "uncensored" is marketing
+copy, not a licence grant, and does not populate the field.
+
+The world engine never learns which provider answered. It already does not: the
+provider abstraction (ADR-009, docs/08) exists exactly so a provider can vanish
+without taking the product with it. This decision spends that abstraction rather
+than adding a new one.
+
+**Why this is cheap now.** Under ADR-025 the model writes dialogue and proposes
+events; it never owns truth. Events, projections, relationships and history live
+in Postgres. So a mature-tier provider generates PROSE over a world it does not
+hold. If that provider disappears or changes policy overnight, worlds, memories
+and relationships are untouched and the dialogue model is swapped. That is only
+true because state is database-authoritative (ADR-002).
+
+**Safety boundaries do NOT move with the tier.** A permissive model does not
+imply a permissive product, and this is a product decision rather than a
+provider one. Regardless of what any model will emit, DarkForest refuses:
+
+  - any sexual content involving minors, in any framing, fictional included
+  - non-consensual sexual scenarios presented approvingly
+  - sexual content depicting identifiable real people
+  - content that sexualises real-world exploitation
+
+These are enforced by our own moderation (docs/13), before and independently of
+whatever the provider does or does not filter. The mature tier is gated on
+verified 18+ accounts at the product layer. "Adult freedom inside firm
+boundaries" is also the only version of this that is commercially durable:
+payment processors and app stores enforce the same lines, so a product without
+them has no distribution.
+
+**Trade-off.** A second eligibility axis multiplies the compliance surface: each
+model now needs terms verified for commercial use, customer-facing use, adult
+content, retention and jurisdiction, and any of those can change without notice.
+That is real ongoing cost, and the reason the matrix is a living document with a
+verification date per row rather than a one-time audit.
+
+**Roadmap, deliberately not now.** Phase 1 is still proving the event
+architecture, and a routing dimension for a tier we do not yet serve would be
+speculative work against an unproven foundation.
+
+  A  capability metadata on ModelDescriptor, tier field unpopulated
+  B  compliance matrix: one verified row per model, dated, no guesses
+  C  prototype one fictional adult world end to end, private, measuring
+     continuity, refusal behaviour, moderation, latency and cost
+  D  self-hosted inference behind the existing AIProvider interface, if
+     demand justifies it - the endgame for provider independence
+
+**Revisit.** When Phase 1 passes its gate, or sooner if a provider policy change
+threatens the general tier.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
