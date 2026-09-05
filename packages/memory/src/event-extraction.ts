@@ -33,6 +33,26 @@ export interface EventRejection {
   detail: string;
 }
 
+/**
+ * What happened to one extraction attempt.
+ *
+ * `empty_valid` is the distinction that matters and the one two previous metrics
+ * missed: a turn with nothing durable in it SHOULD produce zero events, and
+ * Suite 1's script is roughly 80 filler turns to 20 fact-bearing ones. Counting
+ * "yielded no events" as failure meant perfect extraction could score about 20%,
+ * and the 15% we reported was near the ceiling the measurement allowed.
+ *
+ * `truncated` is separated from `unparseable` because they have different fixes:
+ * one is a token budget, the other is the model ignoring the format.
+ */
+export type ExtractionOutcomeKind =
+  | "accepted"
+  | "empty_valid"
+  | "truncated"
+  | "unparseable"
+  | "schema"
+  | "all_rejected";
+
 export interface EventExtractionOutcome {
   events: WorldEvent[];
   rejected: EventRejection[];
@@ -47,6 +67,10 @@ export interface EventExtractionOutcome {
    */
   proposed: number;
   attempted: number;
+  /** The single outcome for this attempt. See ExtractionOutcomeKind. */
+  outcome: ExtractionOutcomeKind;
+  /** True when the provider stopped on length rather than finishing. */
+  truncated: boolean;
 }
 
 function tryParse(text: string): unknown {
@@ -151,16 +175,31 @@ export async function extractEvents(
   usage.inputTokens += res.usage.inputTokens;
   usage.outputTokens += res.usage.outputTokens + (res.usage.reasoningTokens ?? 0);
 
+  // Distinguished from a format failure: the model was doing the right thing and
+  // ran out of room, which is a budget fix rather than a prompt fix.
+  const truncated = res.finishReason === "length";
+
   const raw = tryParse(res.text);
   if (raw === null) {
-    rejected.push({ reason: "unparseable", detail: "model output was not JSON" });
-    return { events: [], rejected, usage, proposed: 0, attempted: 1 };
+    rejected.push({
+      reason: "unparseable",
+      detail: truncated ? "output truncated mid-JSON" : `not JSON: ${res.text.slice(0, 120)}`,
+    });
+    return {
+      events: [],
+      rejected,
+      usage,
+      proposed: 0,
+      attempted: 1,
+      outcome: truncated ? "truncated" : "unparseable",
+      truncated,
+    };
   }
 
   const parsed = EventExtractionSchema.safeParse(raw);
   if (!parsed.success) {
     rejected.push({ reason: "schema", detail: parsed.error.issues[0]?.message ?? "schema mismatch" });
-    return { events: [], rejected, usage, proposed: 0, attempted: 1 };
+    return { events: [], rejected, usage, proposed: 0, attempted: 1, outcome: "schema", truncated };
   }
 
   const known = new Set([
@@ -188,11 +227,24 @@ export async function extractEvents(
     seq += 1;
   }
 
+  /*
+   * An empty array is a CORRECT answer for a turn with nothing durable in it.
+   * Only a turn that proposed events and had them all rejected is a failure.
+   */
+  const outcome: ExtractionOutcomeKind =
+    events.length > 0
+      ? "accepted"
+      : parsed.data.events.length === 0
+        ? "empty_valid"
+        : "all_rejected";
+
   return {
     events,
     rejected,
     usage,
     proposed: parsed.data.events.length,
     attempted: 1,
+    outcome,
+    truncated,
   };
 }

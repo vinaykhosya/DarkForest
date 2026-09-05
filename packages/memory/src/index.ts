@@ -39,4 +39,5 @@ export {
   type EventExtractionInput,
   type EventExtractionOutcome,
   type EventRejection,
+  type ExtractionOutcomeKind,
 } from "./event-extraction.js";

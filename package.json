@@ -21,6 +21,7 @@
     "routing:smoke": "tsx packages/evals/src/routing-smoke.ts",
     "cf:verify": "tsx packages/evals/src/cf-verify.ts",
     "suite1:ab": "tsx packages/evals/src/suite1-ab.ts",
+    "event:diag": "tsx packages/evals/src/event-diag.ts",
     "extract:probe": "tsx packages/evals/src/extraction-probe.ts",
     "suite1": "tsx packages/evals/src/suite1.ts",
     "gate": "tsx packages/evals/src/gate.ts",
