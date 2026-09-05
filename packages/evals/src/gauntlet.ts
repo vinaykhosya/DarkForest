@@ -1,0 +1,385 @@
+/**
+ * THE GAUNTLET — the final gate before the memory architecture freezes.
+ *
+ * Not Suite 1.5. Suite 1 plants twenty labelled facts and asks for them back,
+ * which measures extraction and retrieval of isolated statements. It cannot
+ * measure the things a persistent world is actually made of: an object that
+ * changes hands three times, a secret told to exactly one person, a lie that
+ * contradicts what the player witnessed, a boundary that must hold for the rest
+ * of the relationship.
+ *
+ * Two worlds, eleven dimensions, nineteen probes. Facts arrive through normal
+ * play, roughly half of every script is mundane, nothing is probed at the turn
+ * it happens, and several probes assert what must NOT come back — a leak is
+ * worse than a miss, because it means a character knows something nobody told
+ * them.
+ *
+ * PIPELINE PER PROBE
+ *   events (this world, this far)
+ *     -> filtered to what askedOf actually knows (knownBy, or empty = public)
+ *     -> rendered as plain lines
+ *     -> a small in-character generation, answering ONLY from those lines
+ *     -> checked against expect/forbid with the frozen contract matcher
+ *
+ * This tests the full path a real turn would take — extraction, knowledge
+ * filtering, and a character actually answering — not retrieval in isolation.
+ * `structural` results (the filtered event set alone, before generation) are
+ * recorded alongside `answered` results so a generation failure can be told
+ * apart from an extraction failure.
+ */
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
+import type { WorldEvent } from "@darkforest/contracts";
+import { normaliseKey } from "@darkforest/core";
+import { extractEvents } from "@darkforest/memory";
+import { capturesFact, type PlantedFact } from "./contract/evaluation-contract.js";
+import { SchedulerRouter } from "./scheduler-router.js";
+import { GAUNTLET_WORLDS, type GauntletProbe, type GauntletWorld } from "./worlds/gauntlet.js";
+
+function loadEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(".env", "utf8").split(/\r?\n/)) {
+    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (!m?.[1]) continue;
+    const v = (m[2] ?? "").split(" #")[0]?.trim() ?? "";
+    if (v) out[m[1]] = v;
+  }
+  return out;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const DELAY = 2800;
+
+/** A stock in-world acknowledgement. Static, so the transcript never leaks new facts. */
+function ackFor(turn: string, world: GauntletWorld): { speaker: string; content: string } {
+  const lower = turn.toLowerCase();
+  const named = world.characters.find((c) => lower.includes(c.name.toLowerCase()));
+  const speaker = named?.name ?? world.characters[0]!.name;
+  return { speaker, content: `${speaker} takes it in and says little.` };
+}
+
+function windowFor(world: GauntletWorld, turnIndex: number): Array<{ speaker: string; content: string }> {
+  const out: Array<{ speaker: string; content: string }> = [];
+  for (let i = Math.max(0, turnIndex - 2); i <= turnIndex; i++) {
+    out.push({ speaker: "user", content: world.script[i]! });
+    out.push(ackFor(world.script[i]!, world));
+  }
+  return out.slice(-6);
+}
+
+/** Whether a character actually knows about an event. Empty knownBy = public. */
+function isKnownBy(e: WorldEvent, character: string): boolean {
+  const who = normaliseKey(character);
+  if (e.knownBy.length === 0) return true;
+  if (e.knownBy.some((n) => normaliseKey(n) === who)) return true;
+  if (normaliseKey(e.actor) === who) return true;
+  if (e.target !== null && normaliseKey(e.target) === who) return true;
+  return false;
+}
+
+/** A plain-language line for one event, for feeding a character's own recollection. */
+function renderLine(e: WorldEvent): string {
+  switch (e.type) {
+    case "acquired":
+      return `${e.actor} acquired ${e.object ?? "something"}.`;
+    case "gave":
+      return `${e.actor} gave ${e.object ?? "something"} to ${e.target ?? "someone"}.`;
+    case "lost":
+      return `${e.actor} lost ${e.object ?? "something"}.`;
+    case "promised":
+      return `${e.actor} promised ${e.target ?? "someone"}: ${e.value ?? ""}`;
+    case "refused":
+      return `${e.actor} refused: ${e.value ?? ""}`;
+    case "fulfilled":
+      return `${e.actor} fulfilled a promise: ${e.value ?? ""}`;
+    case "asked":
+      return `${e.actor} asked ${e.target ?? "someone"} about: ${e.value ?? ""}`;
+    case "answered":
+      return `An earlier question was answered: ${e.value ?? ""}`;
+    case "revealed":
+      return `${e.actor} revealed to ${e.target ?? "someone"}: ${e.value ?? ""}`;
+    case "observed":
+      return `${e.actor} personally observed: ${e.value ?? e.object ?? ""}`;
+    case "relation_stated":
+    case "relation_changed":
+      return `${e.actor}'s standing with ${e.target ?? "someone"}: ${e.value ?? ""}`;
+    case "preference_stated":
+      return `${e.actor} feels this way about ${e.object ?? "something"}: ${e.value ?? ""}`;
+    case "numeric_stated":
+      return `${e.object ?? "a count"}: ${String(e.quantity ?? "")}`;
+    case "world_event":
+      return e.value ?? e.object ?? "";
+  }
+}
+
+interface ProbeResult {
+  probe: GauntletProbe;
+  world: string;
+  structuralCaptured: boolean;
+  structuralLeak: boolean;
+  answered: string;
+  answerCaptured: boolean;
+  answerLeak: boolean;
+  knownEventCount: number;
+}
+
+async function answerAsCharacter(
+  router: SchedulerRouter,
+  world: GauntletWorld,
+  probe: GauntletProbe,
+  lines: readonly string[],
+): Promise<string> {
+  const character = world.characters.find((c) => c.id.toLowerCase() === probe.askedOf.toLowerCase()) ??
+    world.characters.find((c) => c.name.toLowerCase() === probe.askedOf.toLowerCase());
+  const persona = character?.persona ?? `${probe.askedOf}, a person in this world.`;
+
+  const system = [
+    `You are ${probe.askedOf}. ${persona}`,
+    `Answer only from what you personally know, listed below. If it is not`,
+    `listed, you do not know it — say so plainly rather than guessing or`,
+    `inventing. Stay brief and in character. Never mention "events" or "logs".`,
+    ``,
+    `WHAT YOU KNOW`,
+    lines.length > 0 ? lines.map((l) => `- ${l}`).join("\n") : "(nothing relevant)",
+  ].join("\n");
+
+  try {
+    const res = await router.generate(
+      {
+        taskClass: "dialogue",
+        system,
+        messages: [{ role: "user", content: probe.question }],
+        maxTokens: 150,
+        temperature: 0.3,
+        timeoutMs: 30_000,
+        meta: { requestId: `gauntlet-${probe.id}` },
+      },
+      router.models[0]!,
+    );
+    return res.text;
+  } catch (e) {
+    return `[call failed: ${e instanceof Error ? e.message.slice(0, 80) : "unknown"}]`;
+  }
+}
+
+async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<ProbeResult[]> {
+  const knownEntities = world.characters.map((c) => ({ ref: `character:${c.id}`, name: c.name }));
+  const probesByTurn = new Map<number, GauntletProbe[]>();
+  for (const p of world.probes) {
+    const arr = probesByTurn.get(p.at) ?? [];
+    arr.push(p);
+    probesByTurn.set(p.at, arr);
+  }
+
+  const events: WorldEvent[] = [];
+  let seq = 0;
+  const results: ProbeResult[] = [];
+
+  console.log(`\n${"=".repeat(78)}\n${world.name.toUpperCase()}\n${"=".repeat(78)}`);
+  process.stdout.write("  extracting  ");
+
+  for (let i = 0; i < world.script.length; i++) {
+    if (i > 0) await sleep(DELAY);
+    const day = world.startingDay + Math.floor(i / 2);
+    router.currentTurn = i + 1;
+    try {
+      const ev = await extractEvents(router, router.models[0]!, {
+        worldId: world.id,
+        transcript: windowFor(world, i),
+        worldDay: day,
+        knownEntities,
+        aggressiveness: 0.6,
+        sourceTurn: i + 1,
+        nextSeq: seq,
+      });
+      events.push(...ev.events);
+      seq += ev.events.length;
+      process.stdout.write(ev.events.length > 0 ? "o" : ".");
+    } catch {
+      process.stdout.write("x");
+    }
+
+    const due = probesByTurn.get(i);
+    if (due !== undefined) {
+      for (const probe of due) {
+        await sleep(DELAY);
+        const known = events.filter((e) => isKnownBy(e, probe.askedOf));
+        const asFacts: PlantedFact = {
+          id: probe.id,
+          plantedAt: 0,
+          kind: probe.dimension,
+          expect: probe.expect,
+        };
+        const structuralCaptured = probe.expect.length === 0 ? true : capturesFact(known, asFacts);
+        const structuralLeak =
+          (probe.forbid?.length ?? 0) > 0 &&
+          capturesFact(known, { ...asFacts, expect: probe.forbid ?? [] });
+
+        const lines = known.map(renderLine).filter((l) => l.trim().length > 0);
+        const answer = await answerAsCharacter(router, world, probe, lines);
+        const answerCaptured =
+          probe.expect.length === 0 ? true : probe.expect.some((t) => answer.toLowerCase().includes(t.toLowerCase()));
+        const answerLeak =
+          (probe.forbid?.length ?? 0) > 0 &&
+          (probe.forbid ?? []).some((t) => answer.toLowerCase().includes(t.toLowerCase()));
+
+        results.push({
+          probe,
+          world: world.name,
+          structuralCaptured,
+          structuralLeak,
+          answered: answer,
+          answerCaptured,
+          answerLeak,
+          knownEventCount: known.length,
+        });
+      }
+    }
+  }
+  console.log("");
+  return results;
+}
+
+async function main(): Promise<void> {
+  const env = loadEnv();
+  const registry = new CredentialRegistry(env);
+  const groq = new GroqProvider({
+    getCredential: (est, modelId) => {
+      const g = registry.acquire("groq", est, Date.now(), modelId);
+      return g.ok ? { id: g.id, key: g.key } : null;
+    },
+    onSuccess: (id, t) => {
+      registry.reportSuccess(id, t);
+    },
+    onRateLimited: (id, ms) => {
+      registry.reportRateLimited(id, ms);
+    },
+    onRejected: (id, r) => {
+      registry.reportRejected(id, r);
+    },
+    onFailure: (id) => {
+      registry.reportFailure(id);
+    },
+  });
+  const openrouter = new OpenRouterProvider({
+    getCredential: (est, modelId) => {
+      const g = registry.acquire("openrouter", est, Date.now(), modelId);
+      return g.ok ? { id: g.id, key: g.key } : null;
+    },
+    onSuccess: (id, t) => {
+      registry.reportSuccess(id, t);
+    },
+    onRateLimited: (id, ms) => {
+      registry.reportRateLimited(id, ms);
+    },
+  });
+  const router = new SchedulerRouter({
+    registry,
+    adapters: { groq, openrouter },
+    providerIds: ["groq", "openrouter"],
+    modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
+    sleep,
+  });
+
+  console.log("\n" + "#".repeat(78));
+  console.log("THE GAUNTLET — final gate before the memory architecture freezes");
+  console.log("#".repeat(78));
+  console.log(
+    `  ${String(GAUNTLET_WORLDS.length)} worlds, ${String(
+      GAUNTLET_WORLDS.reduce((a, w) => a + w.probes.length, 0),
+    )} probes, ${String(GAUNTLET_WORLDS.reduce((a, w) => a + w.script.length, 0))} turns total\n` +
+      `  legend  o event extracted   . correctly quiet   x extraction failed\n`,
+  );
+
+  const all: ProbeResult[] = [];
+  for (const world of GAUNTLET_WORLDS) {
+    all.push(...(await runWorld(router, world)));
+    if (world !== GAUNTLET_WORLDS[GAUNTLET_WORLDS.length - 1]) {
+      console.log("  [cooldown] 30s between worlds");
+      await sleep(30_000);
+    }
+  }
+
+  // ── per-probe ────────────────────────────────────────────────────────────
+  console.log("\n" + "-".repeat(78));
+  console.log("PER PROBE");
+  for (const r of all) {
+    const structOk = r.structuralCaptured && !r.structuralLeak;
+    const ansOk = r.answerCaptured && !r.answerLeak;
+    const mark = ansOk ? " " : structOk ? "~" : "X";
+    console.log(
+      `  ${mark} ${r.probe.id.padEnd(20)} ${r.probe.dimension.padEnd(13)} ` +
+        `struct=${structOk ? "ok" : r.structuralLeak ? "LEAK" : "miss"}  ` +
+        `answer=${ansOk ? "ok" : r.answerLeak ? "LEAK" : "miss"}  known=${String(r.knownEventCount)}`,
+    );
+    if (!ansOk) {
+      console.log(`      Q: ${r.probe.question}`);
+      console.log(`      A: ${r.answered.slice(0, 140)}`);
+      console.log(`      why it matters: ${r.probe.why}`);
+    }
+  }
+
+  // ── by dimension ─────────────────────────────────────────────────────────
+  console.log("\n" + "-".repeat(78));
+  console.log("BY DIMENSION");
+  const byDim = new Map<string, { n: number; struct: number; answer: number; leaks: number }>();
+  for (const r of all) {
+    const e = byDim.get(r.probe.dimension) ?? { n: 0, struct: 0, answer: 0, leaks: 0 };
+    e.n += 1;
+    if (r.structuralCaptured && !r.structuralLeak) e.struct += 1;
+    if (r.answerCaptured && !r.answerLeak) e.answer += 1;
+    if (r.structuralLeak || r.answerLeak) e.leaks += 1;
+    byDim.set(r.probe.dimension, e);
+  }
+  for (const [dim, e] of [...byDim.entries()].sort()) {
+    console.log(
+      `  ${dim.padEnd(14)} n=${String(e.n)}   structural ${((e.struct / e.n) * 100).toFixed(0)}%   ` +
+        `end-to-end ${((e.answer / e.n) * 100).toFixed(0)}%   leaks ${String(e.leaks)}`,
+    );
+  }
+
+  // ── the sharpest instrument: leaks ───────────────────────────────────────
+  const leaks = all.filter((r) => r.structuralLeak || r.answerLeak);
+  console.log("\n" + "-".repeat(78));
+  console.log(`KNOWLEDGE ISOLATION — ${String(leaks.length)} leak(s) of ${String(all.filter((r) => (r.probe.forbid?.length ?? 0) > 0).length)} guarded probes`);
+  for (const l of leaks) {
+    console.log(`  LEAK  ${l.probe.id}  ${l.probe.question}`);
+    console.log(`        answered: ${l.answered.slice(0, 140)}`);
+  }
+  if (leaks.length === 0) console.log("  none — every guarded probe held.");
+
+  // ── verdict ──────────────────────────────────────────────────────────────
+  const total = all.length;
+  const endToEnd = all.filter((r) => r.answerCaptured && !r.answerLeak).length;
+  const structural = all.filter((r) => r.structuralCaptured && !r.structuralLeak).length;
+  console.log("\n" + "#".repeat(78));
+  console.log(
+    `  structural (extraction+isolation, no generation)  ${String(structural)}/${String(total)} (${((structural / total) * 100).toFixed(0)}%)`,
+  );
+  console.log(`  end-to-end (what a player would actually see)    ${String(endToEnd)}/${String(total)} (${((endToEnd / total) * 100).toFixed(0)}%)`);
+  console.log(
+    leaks.length > 0
+      ? "  -> DO NOT FREEZE. Any knowledge leak is disqualifying regardless of the\n" +
+          "     recall percentage — it means characters are one narrator wearing\n" +
+          "     several names, which is the specific failure this gate exists to catch."
+      : endToEnd / total >= 0.8
+        ? "  -> PASS. Structured state, history, isolation and perception all hold\n" +
+          "     end-to-end. Freeze the architecture."
+        : "  -> BELOW BAR. No leaks, but end-to-end recall is not yet reliable enough\n" +
+          "     to freeze. Read which dimension is weak above before changing anything.",
+  );
+  console.log("#".repeat(78) + "\n");
+
+  mkdirSync("docs/benchmarks/runs", { recursive: true });
+  writeFileSync(
+    `docs/benchmarks/runs/${new Date().toISOString().slice(0, 10)}-gauntlet.json`,
+    JSON.stringify(all, null, 2),
+    "utf8",
+  );
+}
+
+main().catch((e: unknown) => {
+  console.error(e);
+  process.exitCode = 1;
+});

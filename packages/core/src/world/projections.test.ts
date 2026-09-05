@@ -186,3 +186,63 @@ describe("project — the remaining projections", () => {
     );
   });
 });
+
+describe("project — observation is knowledge, not world truth", () => {
+  it("records a perception without changing what the world contains", () => {
+    /*
+     * The distinction the `observed` type exists for. A beacon burning on the
+     * headland was already burning; the user seeing it changes what the USER
+     * knows. Folding that into world state would make "the user saw it" and
+     * "it happened" the same record, and the difference is the whole basis of
+     * knowledge isolation.
+     */
+    const p = project([
+      ev({
+        type: "observed",
+        actor: "the user",
+        object: "a beacon on the headland",
+        value: "the user saw a beacon burning on the headland",
+      }),
+    ]);
+    expect(p.observations).toHaveLength(1);
+    expect(p.worldEvents).toHaveLength(0);
+    expect(p.ownership.size).toBe(0);
+  });
+
+  it("keeps a perception private to the observer by default", () => {
+    // Seeing a beacon tells nobody else. Defaulting knownBy to everyone present
+    // is how a character mentions something they never witnessed.
+    const p = project([
+      ev({ type: "observed", actor: "the user", value: "smoke over the granary" }),
+    ]);
+    expect(p.observations[0]?.knownBy).toEqual(["the user"]);
+  });
+
+  it("honours an explicit knownBy when several people saw it", () => {
+    const p = project([
+      ev({
+        type: "observed",
+        actor: "the user",
+        value: "the signal fire on the ridge",
+        knownBy: ["the user", "Elena"],
+      }),
+    ]);
+    expect(p.observations[0]?.knownBy).toEqual(["the user", "Elena"]);
+  });
+
+  it("separates observing a thing from the event that created it", () => {
+    // Both can exist for one object and they are different facts: the mill
+    // burning is world truth, the user smelling smoke is what the user knows.
+    const p = project([
+      ev({ type: "world_event", actor: "the world", object: "the mill", value: "the mill burned" }),
+      ev({ type: "observed", actor: "the user", value: "smoke from the mill", worldDay: 2 }),
+    ]);
+    expect(p.worldEvents).toHaveLength(1);
+    expect(p.observations).toHaveLength(1);
+  });
+
+  it("skips an observation carrying nothing to record", () => {
+    const p = project([ev({ type: "observed", actor: "the user" })]);
+    expect(p.observations).toHaveLength(0);
+  });
+});

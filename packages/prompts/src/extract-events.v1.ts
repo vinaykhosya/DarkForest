@@ -16,7 +16,16 @@ import { estimateTokens } from "@darkforest/core";
  * alongside recall precisely because it is the number most likely to sink this.
  */
 
-export const EXTRACT_EVENTS_PROMPT_VERSION = "extract-events/v1";
+/**
+ * v1.1 adds the `observed` primitive.
+ *
+ * NOT a rewording. v2 rewrote the selection criteria and captured FEWER facts
+ * (10/20 against v1's 17/20), losing whole categories. This adds a TYPE the
+ * schema was missing, with examples for the verbs that produced nothing at all:
+ * see, hear, notice, smell. Measured 2026-09-06 on 32 unseen sentences,
+ * perception captured 33% against 67-83% for every other agency shape.
+ */
+export const EXTRACT_EVENTS_PROMPT_VERSION = "extract-events/v1.1";
 
 export interface ExtractEventsInput {
   transcript: ReadonlyArray<{ speaker: string; content: string }>;
@@ -51,6 +60,10 @@ export function renderExtractEventsPrompt(input: ExtractEventsInput): {
     `  asked              actor asks target about something`,
     `  answered           an earlier question was answered`,
     `  revealed           actor discloses a secret`,
+    `  observed           someone SEES, HEARS, NOTICES or SMELLS something`,
+    `                     already there. The world did not change; what`,
+    `                     someone KNOWS did. Use it for perception even`,
+    `                     when nobody acts and nothing is taken.`,
     `  relation_stated    how two people stand to each other`,
     `  relation_changed   that standing changed`,
     `  preference_stated  a like, dislike, fear or refusal of a thing`,
@@ -88,9 +101,23 @@ export function renderExtractEventsPrompt(input: ExtractEventsInput): {
     `      "quantity":9}`,
     `  "I remark that Marcus is Elena's brother"`,
     `     {"type":"relation_stated","actor":"Marcus","target":"Elena","value":"brother"}`,
+    `  "I see a beacon burning on the far headland"`,
+    `     {"type":"observed","actor":"the user",`,
+    `      "object":"a beacon on the far headland",`,
+    `      "value":"the user saw a beacon burning on the far headland",`,
+    `      "knownBy":["the user"]}`,
+    `  "I hear something moving in the cellar"`,
+    `     {"type":"observed","actor":"the user",`,
+    `      "object":"movement in the cellar",`,
+    `      "value":"the user heard something moving in the cellar",`,
+    `      "knownBy":["the user"]}`,
     `  "The north bridge collapsed in the storm"`,
     `     {"type":"world_event","actor":"the world","object":"the north bridge",`,
     `      "value":"the north bridge collapsed in the storm"}`,
+    ``,
+    `Perception is not scenery. "I see a signal fire" is an event; "the fire`,
+    `burns low in the grate" is not. The test is whether a reader would need`,
+    `to know it later. A beacon means something. The hearth does not.`,
     ``,
     `SKIP pure movement, greetings, and anything with no durable consequence.`,
     `Return an empty array when a turn contains nothing. Do not pad.`,

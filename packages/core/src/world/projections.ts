@@ -85,6 +85,22 @@ export interface Disclosure {
   sourceTurn: number;
 }
 
+/**
+ * Something a character perceived that was already there.
+ *
+ * Deliberately NOT folded into world state. A tunnel existing beneath the chapel
+ * is world truth; the user finding it is a change in what the user KNOWS; Elena
+ * still not knowing is her own state. Collapsing those is how a character
+ * reveals a secret nobody ever told them.
+ */
+export interface Observation {
+  observer: string;
+  what: string;
+  knownBy: readonly string[];
+  worldDay: number;
+  sourceTurn: number;
+}
+
 export interface WorldProjection {
   /** object → who holds it now. Exactly one entry per object. */
   ownership: Map<string, Ownership>;
@@ -96,6 +112,8 @@ export interface WorldProjection {
   /** key → current value. A count is state, not history. */
   numerics: Map<string, NumericFact>;
   disclosures: Disclosure[];
+  /** Perceptions, in order. Feeds "what do I know" and "when did I learn it". */
+  observations: Observation[];
   /** Events with no projection of their own, kept in order. */
   worldEvents: WorldEvent[];
   /** Every event, ordered. The log is the record; this is just the ordering. */
@@ -111,6 +129,7 @@ function emptyProjection(): WorldProjection {
     persona: [],
     numerics: new Map(),
     disclosures: [],
+    observations: [],
     worldEvents: [],
     ordered: [],
   };
@@ -230,6 +249,20 @@ export function project(events: readonly WorldEvent[]): WorldProjection {
             break;
           }
         }
+        break;
+      }
+
+      case "observed": {
+        const what = e.value ?? e.object;
+        if (what === null) break;
+        p.observations.push({
+          observer: e.actor,
+          what,
+          // Perception is private by default: seeing a beacon tells nobody else.
+          knownBy: e.knownBy.length > 0 ? e.knownBy : [e.actor],
+          worldDay: e.worldDay,
+          sourceTurn: e.sourceTurn,
+        });
         break;
       }
 

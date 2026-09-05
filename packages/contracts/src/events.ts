@@ -41,6 +41,20 @@ export const WorldEventTypeSchema = z.enum([
   "answered",
   // → knowledge
   "revealed",
+  /*
+   * Someone PERCEIVED something that already existed. Distinct from
+   * `world_event`, which is the world changing, and from `acquired`, which is
+   * taking. Measured 2026-09-06 on 32 unseen sentences: perception captured 33%
+   * against 67-83% for every other shape, and see/hear/notice/smell produced NO
+   * event at all while discover/find worked. The model was not failing to judge
+   * importance - the ontology had nowhere to put the fact.
+   *
+   * The separation matters beyond extraction. A tunnel existing beneath the
+   * chapel is world truth; the user finding it is a knowledge transition; Elena
+   * still not knowing is her state. Collapsing those into one record is how a
+   * character reveals a secret nobody told them.
+   */
+  "observed",
   // → relationships
   "relation_stated",
   "relation_changed",
