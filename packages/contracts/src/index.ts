@@ -13,3 +13,4 @@ export * from "./ai.js";
 export * from "./memory.js";
 export * from "./character.js";
 export * from "./world.js";
+export * from "./events.js";

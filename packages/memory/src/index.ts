@@ -33,3 +33,10 @@ export {
   type ExtractionOutcome,
   type ExtractionUsage,
 } from "./extraction.js";
+
+export {
+  extractEvents,
+  type EventExtractionInput,
+  type EventExtractionOutcome,
+  type EventRejection,
+} from "./event-extraction.js";

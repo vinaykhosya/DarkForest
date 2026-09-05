@@ -21,3 +21,6 @@ export * from "./memory/fusion.js";
 export * from "./memory/mmr.js";
 export * from "./memory/budget.js";
 export * from "./memory/extraction-gate.js";
+export * from "./world/projections.js";
+export * from "./world/query-router.js";
+export * from "./world/resolver.js";

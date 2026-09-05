@@ -46,3 +46,9 @@ export const ACTIVE_PROMPT_VERSIONS = {
   dialogue_deep: "dialogue/v1",
   extract: "extract/v1",
 } as const;
+
+export {
+  renderExtractEventsPrompt,
+  EXTRACT_EVENTS_PROMPT_VERSION,
+  type ExtractEventsInput,
+} from "./extract-events.v1.js";
