@@ -26,6 +26,7 @@
     "fact:probe": "tsx packages/evals/src/fact-turn-probe.ts",
     "selectivity": "tsx packages/evals/src/selectivity-ab.ts",
     "ladder": "tsx packages/evals/src/context-ladder.ts",
+    "agency": "tsx packages/evals/src/agency-experiment.ts",
     "extract:probe": "tsx packages/evals/src/extraction-probe.ts",
     "suite1": "tsx packages/evals/src/suite1.ts",
     "gate": "tsx packages/evals/src/gate.ts",
