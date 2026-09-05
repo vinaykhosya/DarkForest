@@ -23,6 +23,8 @@ export {
   buildQuery,
   type RetrievalInput,
   type RetrievalOutput,
+  type RetrievalFunnel,
+  type FunnelStage,
 } from "./retrieval.js";
 
 export {

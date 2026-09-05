@@ -48,6 +48,47 @@ export interface RetrievalInput {
   candidatePoolSize?: number;
   maxMemories?: number;
   weights?: Partial<RankingWeights>;
+  /**
+   * Diagnostic only. When supplied, the pipeline records where the memory
+   * matching this predicate was lost. Off in production: the cost is a
+   * predicate call per candidate per stage.
+   */
+  traceMatch?: (content: string) => boolean;
+}
+
+/**
+ * Where a specific memory was lost between the store and the final context.
+ *
+ * Exists because "not retrieved" was, for three benchmark generations, a single
+ * undifferentiated failure. The 3-rep gate produced 46 stored-but-not-retrieved
+ * probes against 5 never-stored ones, and no way to say whether the memory never
+ * became a candidate, lost on score, was evicted as a near-duplicate, or fell
+ * off the end of the top-K. Those have four different fixes.
+ */
+export type FunnelStage =
+  | "not_a_candidate"
+  | "lost_on_score"
+  | "evicted_by_mmr"
+  | "dropped_for_budget"
+  | "retrieved";
+
+export interface RetrievalFunnel {
+  /** False when nothing in the candidate pool matched — see `stage`. */
+  found: boolean;
+  stage: FunnelStage;
+  /** Rank within each generator, or null when that path missed it entirely. */
+  vectorRank: number | null;
+  keywordRank: number | null;
+  structuralRank: number | null;
+  fusedRank: number | null;
+  /** Rank by composite score, BEFORE MMR and budget packing. */
+  scoreRank: number | null;
+  score: number | null;
+  breakdown: Record<string, number> | null;
+  finalRank: number | null;
+  candidateCount: number;
+  /** Memories that outscored it, nearest first. Names what actually won. */
+  beatenBy: Array<{ score: number; breakdown: Record<string, number>; content: string }>;
 }
 
 export interface RetrievalOutput {
@@ -55,6 +96,8 @@ export interface RetrievalOutput {
   trace: RetrievalTrace;
   /** True when embeddings lagged and the vector path contributed nothing. */
   degraded: boolean;
+  /** Present only when `traceMatch` was supplied. */
+  funnel?: RetrievalFunnel;
 }
 
 /**
@@ -241,6 +284,20 @@ export async function retrieve(
   const selectedIds = packed.selected.map((s) => s.memory.id as MemoryId);
   await store.recordAccess(selectedIds);
 
+  const funnel =
+    input.traceMatch === undefined
+      ? undefined
+      : buildFunnel(input.traceMatch, {
+          vectorResults,
+          keywordResults,
+          structuralResults,
+          fused: fused.map((f) => f.item),
+          byId,
+          ranked,
+          diversified,
+          selected: packed.selected,
+        });
+
   const trace: RetrievalTrace = {
     queryText: query.text,
     characterId: input.characterId,
@@ -255,5 +312,83 @@ export async function retrieve(
     durationMs: Date.now() - startedAt,
   };
 
-  return { memories: packed.selected, trace, degraded };
+  return {
+    memories: packed.selected,
+    trace,
+    degraded,
+    ...(funnel === undefined ? {} : { funnel }),
+  };
+}
+
+/** Rank of the first match in a candidate list, or null. */
+function rankIn(
+  list: readonly MemoryCandidate[],
+  match: (content: string) => boolean,
+): number | null {
+  const i = list.findIndex((c) => match(c.memory.content));
+  return i >= 0 ? i : null;
+}
+
+function buildFunnel(
+  match: (content: string) => boolean,
+  s: {
+    vectorResults: readonly MemoryCandidate[];
+    keywordResults: readonly MemoryCandidate[];
+    structuralResults: readonly MemoryCandidate[];
+    fused: readonly string[];
+    byId: ReadonlyMap<string, MemoryCandidate>;
+    ranked: readonly ScoredMemory[];
+    diversified: readonly ScoredMemory[];
+    selected: readonly ScoredMemory[];
+  },
+): RetrievalFunnel {
+  const vectorRank = rankIn(s.vectorResults, match);
+  const keywordRank = rankIn(s.keywordResults, match);
+  const structuralRank = rankIn(s.structuralResults, match);
+
+  const fusedIdx = s.fused.findIndex((id) => {
+    const c = s.byId.get(id);
+    return c !== undefined && match(c.memory.content);
+  });
+  const scoreIdx = s.ranked.findIndex((r) => match(r.memory.content));
+  const finalIdx = s.selected.findIndex((r) => match(r.memory.content));
+  const inDiversified = s.diversified.some((r) => match(r.memory.content));
+
+  const hit = scoreIdx >= 0 ? s.ranked[scoreIdx] : undefined;
+
+  // Ordered so the FIRST stage that lost it is the one reported. A memory that
+  // never became a candidate cannot also be "lost on score".
+  const stage: FunnelStage =
+    finalIdx >= 0
+      ? "retrieved"
+      : scoreIdx < 0
+        ? "not_a_candidate"
+        : inDiversified
+          ? "dropped_for_budget"
+          : scoreIdx < s.diversified.length
+            ? "evicted_by_mmr"
+            : "lost_on_score";
+
+  return {
+    found: scoreIdx >= 0,
+    stage,
+    vectorRank,
+    keywordRank,
+    structuralRank,
+    fusedRank: fusedIdx >= 0 ? fusedIdx : null,
+    scoreRank: scoreIdx >= 0 ? scoreIdx : null,
+    score: hit?.score ?? null,
+    breakdown: hit?.breakdown ?? null,
+    finalRank: finalIdx >= 0 ? finalIdx : null,
+    candidateCount: s.ranked.length,
+    // Only the ones that actually displaced it, nearest first.
+    beatenBy:
+      scoreIdx <= 0
+        ? []
+        : s.ranked.slice(Math.max(0, scoreIdx - 3), scoreIdx).map((r) => ({
+            score: r.score,
+            breakdown: r.breakdown,
+            content: r.memory.content.slice(0, 90),
+          })),
+  };
 }

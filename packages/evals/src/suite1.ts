@@ -35,6 +35,7 @@ import {
 } from "./scheduler-router.js";
 import { COMPACT_PROFILE } from "@darkforest/core";
 import { InMemoryMemoryStore, extractMemories, retrieve, __resetMemoryIds } from "@darkforest/memory";
+import type { FunnelStage } from "@darkforest/memory";
 import { renderDialoguePrompt } from "@darkforest/prompts";
 import { SUITE1, type Suite1Fact } from "./worlds/suite1.js";
 
@@ -57,6 +58,21 @@ interface ProbeOutcome {
   rank: number | null;
   storeSize: number;
   retrieved: number;
+  /**
+   * Where the memory was lost, when it was stored but not retrieved.
+   *
+   * "not retrieved" was one undifferentiated failure for three benchmark
+   * generations. Candidate-generation miss, scoring loss, MMR eviction and
+   * top-K truncation have four different fixes, and aggregate recall cannot
+   * distinguish them.
+   */
+  stage: FunnelStage | "not_stored";
+  scoreRank: number | null;
+  candidateCount: number;
+  /** Which signals carried the memory, when it was scored at all. */
+  breakdown: Record<string, number> | null;
+  /** What outscored it. Names the competitor rather than guessing. */
+  beatenBy: Array<{ score: number; breakdown: Record<string, number>; content: string }>;
 }
 
 interface RunResult {
@@ -164,6 +180,9 @@ async function runOnce(
     recentLines: string[],
     day: number,
   ): Promise<void> => {
+    const hits = (content: string): boolean =>
+      fact.expect.some((n) => content.toLowerCase().includes(n.toLowerCase()));
+
     const r = await retrieve(store, embedder, {
       worldId: SUITE1.id,
       characterId: speaker.id,
@@ -173,22 +192,27 @@ async function runOnce(
       currentWorldDay: day,
       tokenBudget: COMPACT_PROFILE.memories,
       maxMemories: 8,
+      traceMatch: hits,
     });
-    const hits = (content: string): boolean =>
-      fact.expect.some((n) => content.toLowerCase().includes(n.toLowerCase()));
 
     const rank = r.memories.findIndex((m) => hits(m.memory.content));
     // Same matcher against the whole store: separates "never extracted" from
     // "extracted but out-ranked". Those have opposite fixes.
     const all = await store.allByWorld(SUITE1.id);
+    const inStore = all.some((m) => hits(m.content));
     probes.push({
       factId: fact.id,
       checkpoint,
       recalled: rank >= 0,
-      inStore: all.some((m) => hits(m.content)),
+      inStore,
       rank: rank >= 0 ? rank : null,
       storeSize: all.length,
       retrieved: r.memories.length,
+      stage: inStore ? (r.funnel?.stage ?? "not_a_candidate") : "not_stored",
+      scoreRank: r.funnel?.scoreRank ?? null,
+      candidateCount: r.funnel?.candidateCount ?? 0,
+      breakdown: r.funnel?.breakdown ?? null,
+      beatenBy: r.funnel?.beatenBy ?? [],
     });
   };
 
@@ -675,6 +699,59 @@ ABORTED — the embedding provider is not usable, so recall cannot be measured.
       `  ${mark} ${id} ${e.kind.padEnd(14)} recall ${rate.toFixed(0).padStart(3)}%  ` +
         `stored ${stored.toFixed(0).padStart(3)}%  ${e.q}${gap}`,
     );
+  }
+
+  // ── failure taxonomy ──────────────────────────────────────────────────────
+  // WHERE recall is lost, not merely how much. Candidate-generation misses,
+  // scoring losses, MMR evictions and top-K truncation have different fixes.
+  console.log("\n" + "-".repeat(72));
+  console.log("RETRIEVAL FAILURE TAXONOMY");
+  const stages = results
+    .flatMap((r) => r.probes)
+    .filter((p) => !p.recalled);
+  const byStage = new Map<string, number>();
+  for (const p of stages) byStage.set(p.stage, (byStage.get(p.stage) ?? 0) + 1);
+  const LABEL: Record<string, string> = {
+    not_stored: "never extracted     (fix: extraction/gate)",
+    not_a_candidate: "not a candidate     (fix: candidate generation)",
+    lost_on_score: "lost on score       (fix: ranking weights)",
+    evicted_by_mmr: "evicted by MMR      (fix: duplicate threshold)",
+    dropped_for_budget: "dropped for budget  (fix: token packing)",
+  };
+  for (const [stage, n] of [...byStage.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(3)}  ${LABEL[stage] ?? stage}`);
+  }
+
+  // When a memory IS scored but loses, its rank says whether it lost narrowly
+  // or was nowhere near. Those are different diagnoses.
+  const scored = stages.filter((p) => p.scoreRank !== null);
+  if (scored.length > 0) {
+    const ranks = scored.map((p) => p.scoreRank ?? 0);
+    console.log(
+      `\n  of the ${String(scored.length)} that were scored but not selected:` +
+        ` median rank ${median(ranks).toFixed(0)} of ${String(
+          Math.round(scored.reduce((a, p) => a + p.candidateCount, 0) / scored.length),
+        )} candidates`,
+    );
+    const narrow = scored.filter((p) => (p.scoreRank ?? 99) < 16).length;
+    console.log(
+      `  ${String(narrow)} lost narrowly (rank < 16), ${String(scored.length - narrow)} were far down`,
+    );
+  }
+
+  // What actually wins. If query-independent signals dominate the winners,
+  // the ranking is answering the wrong question.
+  const winners = stages.flatMap((p) => p.beatenBy);
+  if (winners.length > 0) {
+    const sum: Record<string, number> = {};
+    for (const w of winners) {
+      for (const [k, v] of Object.entries(w.breakdown)) sum[k] = (sum[k] ?? 0) + v;
+    }
+    const total = Object.values(sum).reduce((a, b) => a + b, 0) || 1;
+    console.log("\n  score composition of the memories that displaced them:");
+    for (const [k, v] of Object.entries(sum).sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${k.padEnd(20)} ${((v / total) * 100).toFixed(0).padStart(3)}%`);
+    }
   }
 
   const allProbes = results.flatMap((r) => r.probes);
