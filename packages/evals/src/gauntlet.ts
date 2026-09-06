@@ -411,12 +411,34 @@ async function main(): Promise<void> {
       `  legend  o event extracted   . correctly quiet   x extraction failed\n`,
   );
 
+  /*
+   * REPETITIONS, because every conclusion drawn from this gauntlet so far came
+   * from n=1 and the variance is wider than the effects being attributed to it.
+   * Two runs on identical isolation code gave 84% with no leaks and 79% with
+   * one, and a focused probe could not reproduce the leak at all.
+   *
+   * A failure that appears in one run of three is noise or an intermittent bug.
+   * One that appears in three of three is a defect. Nothing distinguishes them
+   * at n=1, and NOTHING may be changed between reps — a fix mid-experiment
+   * destroys the only thing it measures.
+   */
+  const REPS = Number(process.env["GAUNTLET_REPS"] ?? "1");
   const all: ProbeResult[] = [];
-  for (const world of GAUNTLET_WORLDS) {
-    all.push(...(await runWorld(router, world)));
-    if (world !== GAUNTLET_WORLDS[GAUNTLET_WORLDS.length - 1]) {
-      console.log("  [cooldown] 30s between worlds");
-      await sleep(30_000);
+  const repCount = REPS;
+  for (let rep = 1; rep <= REPS; rep++) {
+    if (REPS > 1) {
+      console.log(`\n${"=".repeat(78)}\nREPETITION ${String(rep)} of ${String(REPS)}\n${"=".repeat(78)}`);
+    }
+    for (const world of GAUNTLET_WORLDS) {
+      all.push(...(await runWorld(router, world)));
+      if (world !== GAUNTLET_WORLDS[GAUNTLET_WORLDS.length - 1]) {
+        console.log("  [cooldown] 30s between worlds");
+        await sleep(30_000);
+      }
+    }
+    if (rep < REPS) {
+      console.log("  [cooldown] 60s between repetitions");
+      await sleep(60_000);
     }
   }
 
@@ -504,6 +526,51 @@ ANSWER NOISE — ${String(noisy.length)} of ` +
     console.log(`  ${m.probe.id.padEnd(22)} ${m.probe.dimension.padEnd(14)} ${stage}`);
     console.log(`      Q: ${m.probe.question}`);
   }}
+
+  // ── stability across repetitions ─────────────────────────────────────────
+  if (repCount > 1) {
+    console.log("\n" + "-".repeat(78));
+    console.log(`STABILITY ACROSS ${String(repCount)} REPETITIONS`);
+    console.log(
+      "  A failure in 1 of N is noise or intermittent; in N of N it is a defect.\n" +
+        "  Only the second kind is worth fixing, and only the first is worth re-running.\n",
+    );
+    const ids = [...new Set(all.map((r) => r.probe.id))];
+    console.log(
+      `  ${"PROBE".padEnd(22)}${"struct".padStart(8)}${"answer".padStart(8)}${"leaks".padStart(7)}   lost at`,
+    );
+    for (const id of ids) {
+      const rows = all.filter((r) => r.probe.id === id);
+      const struct = rows.filter((r) => r.structuralCaptured).length;
+      const ans = rows.filter((r) => r.answerCaptured && !r.answerLeak).length;
+      const lk = rows.filter((r) => r.structuralLeak || r.answerLeak).length;
+      const stages = [
+        ...new Set(
+          rows
+            .filter((r) => !r.structuralCaptured)
+            .map((r) => {
+              const L = r.layers;
+              if (!L.extracted) return "extraction";
+              if (!L.audience) return "isolation";
+              if (!L.projected) return "routing";
+              if (!L.routed) return "projection";
+              if (!L.inContext) return "context";
+              return "unknown";
+            }),
+        ),
+      ];
+      const cells = [
+        id.padEnd(22),
+        `${String(struct)}/${String(rows.length)}`.padStart(8),
+        `${String(ans)}/${String(rows.length)}`.padStart(8),
+        String(lk).padStart(7),
+        "   ",
+        stages.join(", "),
+        lk > 0 ? "  LEAK" : "",
+      ];
+      console.log(cells.join(""));
+    }
+  }
 
   // ── verdict ──────────────────────────────────────────────────────────────
   const total = all.length;
