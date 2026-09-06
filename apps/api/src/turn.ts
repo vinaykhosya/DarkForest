@@ -1,7 +1,6 @@
 import type {
   AIProvider,
   CharacterId,
-  MemoryId,
   EmbeddingProvider,
   ModelDescriptor,
   WorldEvent,
@@ -80,6 +79,14 @@ const PLAYER = "the user";
 const RECALL_LIMIT = 6;
 /** ADR-012/ADR-020: the compact profile is mandatory, not an optimisation. */
 const RECALL_TOKEN_BUDGET = 700;
+/**
+ * How many memories one turn will embed.
+ *
+ * Bounded so that a large backlog cannot make a single turn slow — it drains a
+ * few per turn instead, which is the right trade when the alternative is a user
+ * waiting on someone else's arrears.
+ */
+const EMBED_BATCH = 8;
 
 /**
  * A rendered event, cut to what `MemoryContentSchema` accepts (8..200 chars).
@@ -397,8 +404,7 @@ async function generateAndStore(
       worldDay: prepared.worldDay,
     });
 
-    const written: Array<{ id: MemoryId; content: string }> = [];
-    if (extraction === null || extraction.events.length === 0) return written;
+    if (extraction === null || extraction.events.length === 0) return 0;
 
     /*
      * Events are attributed to the PLAYER's turn, not the reply's.
@@ -493,54 +499,68 @@ async function generateAndStore(
       }
       // The player has no character row, so their own knowledge is carried by
       // the event log alone. Noted so the asymmetry does not read as an omission.
-      written.push({ id: memory.id, content });
     }
-    return written;
+    return storedEvents.length;
   });
 
   /*
-   * ── 5. EMBED WHAT WAS JUST WRITTEN ────────────────────────────────────────
+   * ── 5. EMBED WHATEVER STILL NEEDS IT ──────────────────────────────────────
    *
    * Without this the vector path is dead. `setEmbedding` was never called, so
    * every memory sat with no vector; `vectorSearch` skips those by design —
    * "retrieval degrades, never fails" — and the whole burden fell on keyword
-   * overlap and recency.
+   * overlap and recency. That is exactly the path that cannot work here: the
+   * stored memory reads "the user cannot swim, never learned" and the question
+   * a day later is "should we wade across the channel?", with not one content
+   * word in common. Bridging that is the entire reason the semantic index
+   * exists, and it was switched off.
    *
-   * That is exactly the path that cannot work here. The stored memory reads
-   * "the user cannot swim, never learned" and the question a day later is
-   * "should we wade across the channel?" — not one content word in common.
-   * Bridging that is the entire reason the semantic index exists, and it was
-   * switched off. Extraction reached 9/10 while the gate sat at 5/10, and the
-   * gap was this.
+   * IT ASKS THE DATABASE WHAT NEEDS EMBEDDING rather than remembering what it
+   * just wrote. `pendingEmbeddings` already means exactly "live memories with
+   * no vector", so the memories from this turn are in it by definition — and so
+   * is anything an earlier turn failed to embed.
    *
-   * In its OWN transaction, after the write committed. Embedding is a network
-   * call, and holding a database connection open across one is the same mistake
-   * as wrapping the generation in a transaction — a handful of concurrent users
-   * exhaust the pool while everyone waits on someone else's HTTP.
+   * That is the whole difference between a backlog that drains and one that
+   * accumulates. Embedding is a network call and it will fail sometimes; with
+   * a hand-carried list, a single transient failure leaves that memory
+   * unretrievable by vector FOREVER, silently, because nothing ever looks at it
+   * again. Reading the pending set means the next turn picks it up. No job
+   * runner, no new state — the mechanism was designed for this and was simply
+   * never called.
    *
-   * Failure here is survivable BY DESIGN and must stay that way: the memory
-   * exists without a vector, `pendingEmbeddings` already models exactly that
-   * state, and retrieval falls back to keyword and structural rather than
-   * erroring. A background re-embed job (V0.2) drains the backlog.
+   * The network call sits BETWEEN two short transactions, never inside one.
+   * Holding a connection across HTTP is the same mistake as wrapping the
+   * generation in a transaction: a handful of concurrent users exhaust the pool
+   * while everyone waits on someone else's request.
    */
-  if (stored.length > 0) {
-    try {
-      const vectors = await deps.embedder.embed(stored.map((m) => m.content));
+  try {
+    const pending = await asUser(deps.pool, req.userId, (db) =>
+      new PostgresMemoryStore(db).pendingEmbeddings(worldId, EMBED_BATCH),
+    );
+
+    if (pending.length > 0) {
+      const vectors = await deps.embedder.embed(pending.map((m) => m.content));
       await asUser(deps.pool, req.userId, async (db) => {
         const store = new PostgresMemoryStore(db);
-        for (const [i, m] of stored.entries()) {
+        for (const [i, memory] of pending.entries()) {
           const vector = vectors[i];
           if (vector === undefined) continue;
-          await store.setEmbedding(m.id, vector, deps.embedder.id, deps.embedder.version);
+          await store.setEmbedding(memory.id, vector, deps.embedder.id, deps.embedder.version);
         }
       });
-    } catch (e) {
-      process.stderr.write(
-        `  embedding failed for ${String(stored.length)} memories on turn ` +
-          `${String(prepared.turn.seq)}: ${e instanceof Error ? e.message : String(e)}
-`,
-      );
     }
+  } catch (e) {
+    /*
+     * Survivable BY DESIGN, and it must stay that way. The memories exist
+     * without vectors, retrieval falls back to keyword and structural rather
+     * than erroring, and the next turn tries again. A turn must never fail
+     * because an index could not be updated.
+     */
+    process.stderr.write(
+      `  embedding pass failed on turn ${String(prepared.turn.seq)}: ` +
+        `${e instanceof Error ? e.message : String(e)}
+`,
+    );
   }
 
   return {
@@ -549,6 +569,6 @@ async function generateAndStore(
       content: m.memory.content,
       worldDay: m.memory.worldDay,
     })),
-    eventsExtracted: stored.length,
+    eventsExtracted: stored,
   };
 }

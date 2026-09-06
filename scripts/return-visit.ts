@@ -183,15 +183,35 @@ async function main(): Promise<void> {
     );
 
     // ── the browser closes, and a day passes ─────────────────────────────
-    userId = await asSystem(pool, "return-visit fixture", async (c) => {
-      const { rows } = await c.query<{ owner_id: string }>(
+    /*
+     * What day one actually stored, read once, so day two can be checked
+     * against IDENTITY rather than against a word.
+     *
+     * The first version of the day-two assertion was `/swim/i.test(content)` —
+     * a substring check on a phrase the extractor was merely likely to choose.
+     * It failed one run in ten on a rendering that meant exactly the right
+     * thing and did not happen to contain that word, and it would have kept
+     * scoring the product for the model's choice of synonym. ADR-026 already
+     * records that a substring matcher is a proxy; this removes the proxy
+     * instead of tuning it.
+     */
+    const day1State = await asSystem(pool, "return-visit fixture", async (c) => {
+      const owner = await c.query<{ owner_id: string }>(
         "select owner_id from worlds where id = $1",
+        [worldId],
+      );
+      const memories = await c.query<{ content: string }>(
+        "select content from memories where world_id = $1 and deleted_at is null",
         [worldId],
       );
       // Time is the ONLY simulated part. Everything else is the real product.
       await c.query("update world_state set day = day + 1 where world_id = $1", [worldId]);
-      return rows[0]?.owner_id ?? "";
+      return {
+        ownerId: owner.rows[0]?.owner_id ?? "",
+        stored: memories.rows.map((r) => r.content),
+      };
     });
+    userId = day1State.ownerId;
 
     line("  ── THE BROWSER CLOSES. A DAY PASSES. ───────────────────────────────\n");
 
@@ -216,7 +236,7 @@ async function main(): Promise<void> {
       `${String(transcript.length)} turns`,
     );
 
-    // 5. THE QUESTION. Nothing in it mentions swimming.
+    // 5. THE QUESTION. It shares no content word with what was told on day one.
     const PROMPT = "The ferry's not running. Should we wade across the channel instead?";
     const second = await api<{ reply: string; recalled: Array<{ content: string }> }>(
       day2Token,
@@ -230,10 +250,19 @@ async function main(): Promise<void> {
     }
     line("");
 
+    /*
+     * The retrieved set must contain something day one actually wrote. Exact,
+     * and independent of how the extractor chose to phrase it.
+     */
+    const retrievedFromDayOne = second.recalled.filter((r) => day1State.stored.includes(r.content));
     check(
-      "she retrieved it without being reminded",
-      second.recalled.some((r) => /swim/i.test(r.content)),
-      second.recalled.length === 0 ? "nothing retrieved" : `${String(second.recalled.length)} memories`,
+      "she retrieved what day one stored",
+      retrievedFromDayOne.length > 0,
+      second.recalled.length === 0
+        ? "nothing retrieved"
+        : retrievedFromDayOne.length > 0
+          ? `"${retrievedFromDayOne[0]?.content ?? ""}"`
+          : `retrieved ${String(second.recalled.length)}, none of them day one's`,
     );
 
     /*
@@ -257,7 +286,7 @@ async function main(): Promise<void> {
      * simply did not match. A single failing assertion cannot tell them apart,
      * and guessing between them is how the same afternoon gets spent twice.
      */
-    if (failures.includes("she retrieved it without being reminded")) {
+    if (failures.includes("she retrieved what day one stored")) {
       await asSystem(pool, "return-visit diagnosis", async (c) => {
         line("  ── WHERE IT WAS LOST ───────────────────────────────────────────────\n");
         const events = await c.query<{

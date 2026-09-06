@@ -34,6 +34,9 @@ const CreateCharacter = z.object({
   speechStyle: z.string().trim().max(400).default(""),
 });
 
+/** Generous against the largest legitimate body (a ~1,200 character persona). */
+const MAX_BODY_BYTES = 64 * 1024;
+
 const PostTurn = z.object({
   characterId: z.string().uuid(),
   message: z.string().trim().min(1).max(2000),
@@ -69,6 +72,31 @@ export function createApp(deps: AppDeps): Hono {
 
   app.use("*", async (c, next) => {
     c.set("requestId", `req_${randomUUID().replace(/-/g, "").slice(0, 16)}`);
+    await next();
+  });
+
+  /*
+   * A ceiling on request bodies, checked BEFORE anything parses them.
+   *
+   * Every route validates with Zod, but validation happens after `c.req.json()`
+   * has already buffered the whole body into memory — so a schema that caps a
+   * message at 2,000 characters does nothing to stop a 200 MB upload. The
+   * largest thing any endpoint legitimately accepts is a character persona of
+   * about 1,200 characters, so 64 KB is generous by an order of magnitude and
+   * still bounded.
+   *
+   * `Content-Length` can be absent or wrong on a chunked request, so this is a
+   * cheap first line rather than the only one; Node's own limits sit behind it.
+   * Rejecting the honest oversized request costs nothing and covers the case
+   * that actually happens.
+   */
+  app.use("*", async (c, next) => {
+    const declared = Number(c.req.header("content-length") ?? "0");
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      throw new ApiError("VALIDATION_FAILED", "That request is too large.", {
+        detail: `${String(declared)} bytes exceeds the ${String(MAX_BODY_BYTES)} byte limit`,
+      });
+    }
     await next();
   });
 

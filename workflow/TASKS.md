@@ -57,7 +57,7 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T14 | `POST /worlds`, `POST /characters` | T13 | A stranger creates a world and Elena, owned by them | ☑ |
 | V1-T15 | `POST /turns` — the whole loop, end to end | T11, T14 | Reply generated, turn stored, events extracted, memory indexed | ☑ |
 | V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☑ |
-| V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ☑ **9 of 10** |
+| V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ☑ **8–9 of 10** |
 | V1-T18 | Consumer session log — play it as a user, not as its author | T17 | A written account of what felt alive and what felt mechanical | ☐ |
 | V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | A HELD-OUT sentence captured on ≥9 of 10 runs — never one that appears in the prompt | ☑ **10 of 10** |
 | ~~V1-T20~~ | ~~Re-verify `gpt-oss-20b`~~ | — | **REFUTED 2026-09-06.** `pnpm shootout`: 120b and 20b score IDENTICALLY, fixture for fixture. 20b is not the weak link and its `verifiedTaskClasses` stands. No routing change. | ⊗ |
@@ -68,6 +68,8 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T25 | Contamination guard over every evaluation fixture | — | `pnpm check` fails if a test sentence shares >4 consecutive words with any prompt, and DISCOVERS prompts rather than listing them | ☑ |
 | V1-T26 | Memory kind derived from event type, not hardcoded `episodic` | — | A stated trait decays at 180 days, not 30 | ☑ |
 | V1-T27 | One turn at a time per world (`CONVERSATION_BUSY`) | — | A second concurrent turn is refused; a crashed claim expires | ☑ |
+| V1-T28 | Remove `EventVisibility`, which nothing reads | — | Done when the event schema is next opened for its own reason. Marked ⚠ at the definition meanwhile: an event marked `private` is NOT private, and `audienceFor` is what decides. | ☐ inert |
+| V1-T29 | One run in twenty extracted but did not retrieve, unexplained | T17 | Reproduce with the layer trace, or close it after a clean 20-run window | ☐ |
 
 **Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
 written. If the loop does not feel alive, that is the ONLY signal ADR-028
@@ -139,6 +141,35 @@ Two things the shootout separates that the gate could not:
   one thing the shootout holds constant that the product does not is the
   character's reply: pinned here, generated at temperature 0.85 there. That is
   now the only surviving hypothesis, and `pnpm replynoise` tests it paired.
+
+### Final state of the V0.1 gate, 2026-09-07
+
+Twenty runs across two sessions on the corrected gate:
+
+    extraction   9–10 / 10
+    full gate    8–9  / 10
+
+**The gate's own assertion was wrong until now, and that is worth recording.**
+It tested `/swim/i` against the retrieved text — a substring check on a word the
+extractor was merely likely to choose. One run in ten failed on a rendering that
+meant exactly the right thing without containing that word. ADR-026 already says
+a substring matcher is a proxy; the gate now compares against what day one
+ACTUALLY STORED, read from the database, so the assertion is identity rather
+than vocabulary.
+
+Residual failures, honestly split:
+
+  · **Extraction misses (~1 in 10).** At least one logged as `Groq rate limit` —
+    a capacity failure, not a quality one. The rest are the model declining a
+    sentence it usually keeps.
+  · **One run in twenty extracted but did not retrieve, and I cannot explain
+    it.** No embedding failure logged, no short render, no score floor in the
+    retriever. Left open as V1-T29 rather than closed with a guess; the layer
+    trace prints events, memories, embedded flags and grants the moment it
+    recurs.
+
+Nothing here is tuned. The fixtures are held-out and machine-checked against
+every prompt, and the gate asserts identity rather than a hoped-for word.
 
 ### V1-T19 RESOLVED — the decision ORDER was the bug (extract-events v1.2)
 

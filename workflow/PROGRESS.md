@@ -10,7 +10,7 @@
 | | |
 |---|---|
 | **Phase** | **V0.1 — the vertical slice** (ADR-029 reorders Phases 2–9) |
-| **Phase status** | **The loop closes, 9 times in 10.** Extraction on first mention is 10/10 on held-out sentences. The bottleneck is gone. |
+| **Phase status** | **The loop closes, 8–9 times in 10**, measured on a gate that now asserts identity rather than a hoped-for keyword. The extraction bottleneck is gone; the residual is partly provider capacity. |
 | **Next task** | **V1-T18** — play it as a user, not as its author |
 | **Blocked on** | Nothing. Supabase provisioned, 10 migrations applied, all four `db:verify` suites green. |
 | **Code** | 383 tests · typecheck green · lint green · `pnpm db:verify` green against Supabase |
@@ -41,6 +41,65 @@ because every benchmark worth running on the frozen foundation has been run.
 ---
 
 ## Session log
+
+## 2026-09-07 (final pass) — closing the gaps before the product
+
+**Done** — V1-T28 marked · V1-T29 opened · gate assertion corrected · pending
+embeddings now drain · request bodies bounded
+
+### The gate was testing the wrong thing
+
+`/swim/i` against the retrieved text — a substring check on a word the extractor
+was merely LIKELY to choose. One run in ten failed on a rendering that meant
+exactly the right thing without containing that word. ADR-026 has said since it
+was written that a substring matcher is a proxy, and the gate was quietly
+relying on one.
+
+It now reads what day one ACTUALLY STORED out of the database and asserts the
+retrieved set contains it. Identity, not vocabulary. That is what a gate for
+"she remembers" should always have been.
+
+### A transient embedding failure was permanent
+
+`setEmbedding` ran over a hand-carried list of what the turn had just written.
+`pendingEmbeddings` — which means exactly "live memories with no vector" — was
+designed for this and never called, so one failed network call left a memory
+unretrievable by vector FOREVER, silently, because nothing looked at it again.
+
+The turn now asks the database what needs embedding instead of remembering. The
+new memories are in that set by definition, and so is anything an earlier turn
+failed on. No job runner and no new state — the mechanism existed; it was simply
+never connected. Bounded to eight per turn so a backlog cannot make one user
+wait on another's arrears.
+
+### Smaller, and each a real hole
+
+  **Request bodies were unbounded.** Every route validates with Zod, but that
+  runs AFTER `c.req.json()` has buffered the whole body, so a 2,000-character
+  cap did nothing against a 200 MB upload. 64 KB ceiling, checked first.
+
+  **`EventVisibility` is read by nothing** and an event marked `private` is not
+  private. Marked ⚠ at the definition, because the failure it invites is a
+  reader "fixing" isolation by consulting it — reinventing the second
+  implementation of the audience rule that knowledge.ts exists to prevent.
+  Removal is V1-T28, for when the schema is next opened anyway.
+
+### What is NOT resolved, stated plainly
+
+One run in twenty extracted a fact and then did not retrieve it. No embedding
+failure logged, no short render, no score floor in the retriever. **I cannot
+explain it**, so it is V1-T29 rather than a closed item with a guess attached.
+The layer trace prints events, memories, embedded flags and grants the moment it
+happens again.
+
+**Learned** — the same lesson as the rest of the session, one level up: my own
+GATE had a fail-open default in it. It asserted on a word the model might use
+rather than on the thing that was stored, so it passed for the wrong reason
+whenever the model happened to be conventional.
+
+**Next** — V1-T18. Nothing else is in front of the product.
+
+---
 
 ## 2026-09-07 — the decision order was the bug
 

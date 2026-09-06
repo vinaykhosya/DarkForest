@@ -68,8 +68,23 @@ export const WorldEventTypeSchema = z.enum([
 export type WorldEventType = z.infer<typeof WorldEventTypeSchema>;
 
 /**
- * Who may recall this. Mirrors the existing memory visibility rules so knowledge
- * isolation stays one concept rather than two.
+ * ⚠ NOT CONSULTED BY ISOLATION. Do not reach for this to decide who knows what.
+ *
+ * The intent was to mirror memory visibility. What actually decides who may
+ * recall an event is `audienceFor()` in core/world/knowledge.ts — from the type,
+ * the actor, the target and the participants — and the array it produces is
+ * stored on the row and filtered in SQL. This enum is written, round-tripped,
+ * and read by nothing.
+ *
+ * It is called out this loudly because the failure it invites is the expensive
+ * one. An event marked `private` is NOT private, and a reader who assumes it is
+ * has reinvented the second implementation of the audience rule that
+ * knowledge.ts exists to prevent — the one that let a character describe a
+ * cellar door she had never seen.
+ *
+ * Left in place rather than removed: deleting it means a contract change, a
+ * migration and touching every insert, and it is inert. Removal is tracked as
+ * V1-T28, to be done when the schema is next opened for a reason of its own.
  */
 export const EventVisibilitySchema = z.enum(["world", "witnessed", "private"]);
 export type EventVisibility = z.infer<typeof EventVisibilitySchema>;
