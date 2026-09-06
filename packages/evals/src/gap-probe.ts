@@ -17,14 +17,21 @@
  *
  *   a meeting whose durable detail is the PLACE, for which no event type asks.
  *
- * The first has a specific suspect in our own code. `validate` drops a target
- * the world does not know, and then rejects `gave` with a null target as an
- * impossible transition — so a sale to an unnamed stranger would be discarded
- * by us rather than missed by the model. Worlds are full of strangers, so if
- * that is what is happening it is a product bug and not a benchmark artefact.
+ * The suspect was our own code: `validate` drops a target the world does not
+ * know, then rejects `gave` with a null target as an impossible transition, so a
+ * sale to an unnamed stranger would have been discarded by us rather than missed
+ * by the model.
  *
- * This prints what the model proposes AND what our validation does to it, which
- * are different questions and were conflated in the gauntlet's single "0/3".
+ * REFUTED. rejected=0 on every attempt — we discard nothing, the model proposes
+ * nothing:
+ *
+ *   A-state-ring    proposed 0, 0, 0
+ *   B-temporal      proposed 0, 0, 1  (and the 1 was a different event entirely)
+ *   B-longhorizon   captured 1 of 3   (marginal rather than a hard gap)
+ *
+ * The distinction this probe exists to make — did the model fail to propose it,
+ * or did WE throw away something correct — is one the gauntlet's single "0/3"
+ * could not express, and it took a third refuted hypothesis to notice that.
  */
 
 import { readFileSync } from "node:fs";
@@ -140,7 +147,7 @@ async function main(): Promise<void> {
         for (const r of ev.rejected) {
           console.log(`        REJECTED BY US  ${r.reason}: ${r.detail}`);
         }
-      } catch (e) {
+      } catch {
         console.log(`    rep ${String(rep + 1)}  call failed`);
       }
     }
