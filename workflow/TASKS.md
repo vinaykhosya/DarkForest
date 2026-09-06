@@ -41,15 +41,15 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 
 | ID | Task | Depends | Acceptance | Status |
 |---|---|---|---|---|
-| V1-T01 | Migration runner + `0001_extensions` | — | `pnpm db:migrate` runs clean from empty, twice | ☐ |
-| V1-T02 | `0002_identity` — profiles bound to `auth.users` | T01 | A signed-up user has exactly one profile row | ☐ |
-| V1-T03 | `0003_worlds_characters` | T02 | One world, one character, owner FK enforced | ☐ |
-| V1-T04 | `0004_turns` — the raw transcript, append-only | T03 | Ordered by `(world_id, seq)`; no update or delete path | ☐ |
-| V1-T05 | `0005_events` — immutable, with audience | T04 | Every field of `WorldEventSchema` round-trips; `seq` gapless per world | ☐ |
-| V1-T06 | `0006_projections` — derived, rebuildable cache | T05 | Dropping and refolding every row reproduces it exactly | ☐ |
-| V1-T07 | `0007_memory_index` — memories + knowledge + pgvector | T05 | `MemoryStore` interface satisfied by SQL, isolation IN the query | ☐ |
-| V1-T08 | `0008_rls` — every public table, fail-closed | T07 | CI check returns zero tables without RLS | ☐ |
-| V1-T09 | RLS negative tests | T08 | User B cannot read or write ANY of user A's rows, per table | ☐ |
+| V1-T01 | Migration runner + `0001_extensions` | — | `pnpm db:migrate` runs clean from empty, twice | ☑ |
+| V1-T02 | `0002_identity` — profiles bound to `auth.users` | T01 | A signed-up user has exactly one profile row | ☑ |
+| V1-T03 | `0003_worlds_characters` | T02 | One world, one character, owner FK enforced | ☑ |
+| V1-T04 | `0004_turns` — the raw transcript, append-only | T03 | Ordered by `(world_id, seq)`; UPDATE refused by trigger | ☑ |
+| V1-T05 | `0005_events` — immutable, with audience | T04 | Every field of `WorldEventSchema` round-trips; `audience` NOT NULL | ☑ |
+| ~~V1-T06~~ | ~~`0006_projections` — derived, rebuildable cache~~ | — | **CUT.** `project()` is a pure fold with one implementation; a materialised copy is a second source of truth that can silently disagree with it — the exact defect `knowledge.ts` documents. A snapshot earns its place when refolding is measurably slow. Reopen with a measurement, not a hunch. | ⊗ |
+| V1-T07 | `0006_memory_index` — memories + knowledge + pgvector | T05 | Tables and HNSW index exist; isolation expressible IN the query | ☑ |
+| V1-T08 | `0007_rls` — every public table, fail-closed | T07 | `public_tables_without_rls` returns zero rows (`pnpm db:check`) | ☑ |
+| V1-T09 | RLS negative tests **through `asUser`** | T08 | `pnpm db:rls`: B cannot read or write ANY of A's rows, per table | ☑ |
 | V1-T10 | `PostgresMemoryStore` | T07 | Passes the same suite `InMemoryMemoryStore` passes, unmodified | ☐ |
 | V1-T11 | Event repo + projection fold on write | T06 | A turn's events land, projections update, both in one transaction | ☐ |
 | V1-T12 | Hono API skeleton + typed error envelope | T02 | Health check; every route returns the docs/10 § 2 envelope | ☐ |

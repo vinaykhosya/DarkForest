@@ -38,7 +38,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:check": "tsx scripts/db-check.ts",
     "db:rls": "tsx scripts/rls-check.ts",
-    "db:verify": "pnpm db:check && pnpm db:rls",
+    "db:conformance": "tsx scripts/conformance.ts",
+    "db:verify": "pnpm db:check && pnpm db:rls && pnpm db:conformance",
     "db:snapshot": "tsx scripts/snapshot.ts",
     "db:seed": "tsx scripts/seed.ts"
   },
@@ -54,7 +55,9 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "@darkforest/contracts": "workspace:*",
     "@darkforest/db": "workspace:*",
+    "@darkforest/memory": "workspace:*",
     "zod": "^3.24.1"
   },
   "pnpm": {

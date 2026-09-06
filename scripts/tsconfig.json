@@ -9,5 +9,9 @@
     "composite": true
   },
   "include": ["**/*.ts"],
-  "references": [{ "path": "../packages/db" }]
+  "references": [
+    { "path": "../packages/contracts" },
+    { "path": "../packages/db" },
+    { "path": "../packages/memory" }
+  ]
 }

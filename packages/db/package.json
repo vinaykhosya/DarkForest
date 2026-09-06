@@ -15,6 +15,7 @@
   "dependencies": {
     "@darkforest/contracts": "workspace:*",
     "@darkforest/core": "workspace:*",
+    "@darkforest/memory": "workspace:*",
     "pg": "^8.13.1"
   },
   "devDependencies": {

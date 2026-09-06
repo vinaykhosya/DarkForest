@@ -414,6 +414,23 @@ CREATE INDEX memories_fts ON memories
   USING gin(to_tsvector('english', content));
 CREATE INDEX memories_trgm ON memories USING gin(content gin_trgm_ops);
 
+> **As built, V0.1 — two deliberate divergences from the block above.**
+> Recorded here rather than left to be discovered in a migration diff.
+>
+> 1. **`subjects` is `text[]`, not `uuid[]`.** `EntityRefSchema` is
+>    `character:<uuid>` / `persona:<uuid>` / `narrator` — a uuid carrying its
+>    entity type, and `narrator` carrying no uuid at all. A `uuid[]` column
+>    cannot store either, so the type prefix would have to be stripped on write
+>    and guessed back on read.
+> 2. **`visibility` has no default.** The store always supplies it; see
+>    `0008_memory_vocabulary.sql` for why an unstated default is worse than a
+>    required column here.
+>
+> Also: **there is no `projections` table.** `project()` is a pure fold over the
+> event log with one implementation, and a materialised copy is a second source
+> of truth that can silently disagree with it. A snapshot is added when refolding
+> a world is measurably slow, not before.
+
 -- Separate table: embeddings are large, regenerable, and versioned independently.
 CREATE TABLE memory_embeddings (
   memory_id       uuid PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
@@ -438,6 +455,15 @@ CREATE TABLE memory_links (
 ```
 
 > **Why `halfvec(768)`:** 768 dimensions is the common output size for the small open embedding models available on free tiers, and half-precision halves storage at negligible recall cost at our scale. `embedding_model` + `embedding_version` exist so that changing embedding provider is a background re-embed job, not an outage. **Never assume a fixed model.**
+
+> **As built, V0.1 — the primary key is `(memory_id, model, version)`, not `memory_id`.**
+> A divergence that serves the paragraph above rather than contradicting it. Keyed
+> by `memory_id` alone, a re-embed job overwrites each vector in place, so for the
+> whole run retrieval compares cosine distances across two different vector
+> spaces. They are not comparable and the failure is silent — retrieval gets
+> worse for a few hours and nobody can say why. With both generations coexisting,
+> the cutover is one query changing which `(model, version)` it asks for, and the
+> old rows are deleted afterwards.
 
 ---
 

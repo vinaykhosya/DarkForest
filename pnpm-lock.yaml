@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@darkforest/db':
         specifier: workspace:*
         version: link:packages/db
+      '@darkforest/memory':
+        specifier: workspace:*
+        version: link:packages/memory
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -78,6 +84,9 @@ importers:
       '@darkforest/core':
         specifier: workspace:*
         version: link:../core
+      '@darkforest/memory':
+        specifier: workspace:*
+        version: link:../memory
       pg:
         specifier: ^8.13.1
         version: 8.23.0

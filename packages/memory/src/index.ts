@@ -19,6 +19,13 @@ export type {
 export { InMemoryMemoryStore, __resetMemoryIds } from "./in-memory-store.js";
 
 export {
+  runStoreConformance,
+  CONFORMANCE_CASE_NAMES,
+  type ConformanceContext,
+  type ConformanceResult,
+} from "./conformance.js";
+
+export {
   retrieve,
   buildQuery,
   type RetrievalInput,

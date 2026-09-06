@@ -1,16 +1,16 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { type DbPool, asSystem, asUser, createPool } from "@darkforest/db";
 
 /**
- * `pnpm db:rls` â€” the NEGATIVE tests. V1-T09.
+ * `pnpm db:rls` — the NEGATIVE tests. V1-T09.
  *
  * "RLS is enabled" and "RLS is enforced" are different claims, and only the
  * second one protects anybody. ADR-030 spells out how the first can be true
  * while the second is false for every request in production: connect as
  * `postgres` or `service_role` and every policy is skipped silently.
  *
- * So this connects through `asUser()` â€” the same helper the API will use â€” and
+ * So this connects through `asUser()` — the same helper the API will use — and
  * asserts that user B cannot see, modify, or delete ANY of user A's rows, table
  * by table. A test that only proves A can read their own data would pass just as
  * happily with no policies at all.
@@ -104,7 +104,7 @@ async function destroy(pool: DbPool, f: Fixture): Promise<void> {
     await c.query("begin");
     try {
       // Deliberate erasure, declared. The append-only triggers on turns and
-      // events refuse the cascade without it â€” which is the point of the flag.
+      // events refuse the cascade without it — which is the point of the flag.
       await c.query("select set_config('app.hard_delete', 'on', true)");
       await c.query("delete from auth.users where id = $1", [f.userId]);
       await c.query("commit");
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     const alice = a;
     const bob = b;
 
-    // â”€â”€ the positive case, so a total lockout cannot masquerade as security â”€â”€
+    // ── the positive case, so a total lockout cannot masquerade as security ──
     await asUser(pool, alice.userId, async (c) => {
       const own = await c.query<{ n: string }>("select count(*) as n from worlds where id = $1", [
         alice.worldId,
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
       report("owner reads own world", Number(own.rows[0]?.n ?? "0") === 1, "1 row");
     });
 
-    // â”€â”€ the negative cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── the negative cases ──────────────────────────────────────────────────
     await asUser(pool, bob.userId, async (c) => {
       const tables: Array<[string, string, unknown]> = [
         ["worlds", "select count(*) as n from worlds where id = $1", alice.worldId],
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
       report("B cannot add to A.world", insertBlocked, insertBlocked ? "rejected" : "ACCEPTED");
     });
 
-    // â”€â”€ and A's world survived all of it â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── and A's world survived all of it ────────────────────────────────────
     await asSystem(pool, "post-check verification", async (c) => {
       const r = await c.query<{ name: string }>("select name from worlds where id = $1", [
         alice.worldId,
