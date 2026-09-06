@@ -36,6 +36,7 @@
     "gate": "tsx packages/evals/src/gate.ts",
     "embed:compare": "tsx packages/evals/src/embed-compare.ts",
     "api": "tsx apps/api/src/server.ts",
+    "v01": "tsx scripts/return-visit.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:check": "tsx scripts/db-check.ts",
     "db:rls": "tsx scripts/rls-check.ts",

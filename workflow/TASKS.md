@@ -50,19 +50,47 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T07 | `0006_memory_index` — memories + knowledge + pgvector | T05 | Tables and HNSW index exist; isolation expressible IN the query | ☑ |
 | V1-T08 | `0007_rls` — every public table, fail-closed | T07 | `public_tables_without_rls` returns zero rows (`pnpm db:check`) | ☑ |
 | V1-T09 | RLS negative tests **through `asUser`** | T08 | `pnpm db:rls`: B cannot read or write ANY of A's rows, per table | ☑ |
-| V1-T10 | `PostgresMemoryStore` | T07 | Passes the same suite `InMemoryMemoryStore` passes, unmodified | ☐ |
-| V1-T11 | Event repo + projection fold on write | T06 | A turn's events land, projections update, both in one transaction | ☐ |
-| V1-T12 | Hono API skeleton + typed error envelope | T02 | Health check; every route returns the docs/10 § 2 envelope | ☐ |
-| V1-T13 | Auth: sign-up, sign-in, session (D-003) | T12 | A session survives a browser restart | ☐ |
-| V1-T14 | `POST /worlds`, `POST /characters` | T13 | A stranger creates a world and Elena, owned by them | ☐ |
-| V1-T15 | `POST /turns` — the whole loop, end to end | T11, T14 | Reply generated, turn stored, events extracted, memory indexed | ☐ |
-| V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☐ |
-| V1-T17 | **The return visit** | T16 | Close the browser, come back, Elena remembers unprompted | ☐ |
+| V1-T10 | `PostgresMemoryStore` (`pnpm db:conformance`) | T07 | Passes the same 16 cases `InMemoryMemoryStore` passes, unmodified | ☑ |
+| V1-T11 | Event repo + projection fold on write (`pnpm db:world`) | T05 | A turn's events land with their audience; projections fold on read | ☑ |
+| V1-T12 | Hono API skeleton + typed error envelope | T02 | Health check; every route returns the docs/10 § 2 envelope | ☑ |
+| V1-T13 | Auth: sign-up, sign-in, session (ADR-030) | T12 | JWKS-verified; a session survives a browser restart | ☑ |
+| V1-T14 | `POST /worlds`, `POST /characters` | T13 | A stranger creates a world and Elena, owned by them | ☑ |
+| V1-T15 | `POST /turns` — the whole loop, end to end | T11, T14 | Reply generated, turn stored, events extracted, memory indexed | ☑ |
+| V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☑ |
+| V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ◐ **6 of 9** |
 | V1-T18 | Consumer session log — play it as a user, not as its author | T17 | A written account of what felt alive and what felt mechanical | ☐ |
+| V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | The same sentence captured on ≥9 of 10 runs | ☐ **blocks the gate** |
+| V1-T20 | Re-verify `gpt-oss-20b` for the widened `preference_stated` (ADR-022) | T19 | A dated measurement, or the task class is removed from its `verifiedTaskClasses` | ☐ |
 
 **Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
 written. If the loop does not feel alive, that is the ONLY signal ADR-028
 accepts as grounds to reopen the memory architecture.
+
+### V1-T17 as measured, 2026-09-06 — the loop closes, and it is not yet reliable
+
+Every step works and one is flaky. `pnpm v01` signs up a stranger, creates a
+world and a character, holds a conversation, advances the clock, signs in again
+with a NEW token, and asks a question that never mentions the earlier fact. When
+it passes, it passes properly:
+
+    you:   The ferry's not running. Should we wade across the channel instead?
+    Elena: And drown? Keep your boots dry. You'll stick to the shore while I
+           handle the water.
+    drew on: the user cannot swim, never learned
+
+**It passed 6 of 9 runs.** Every failure was the same step — day one, the
+confession produced no event — and the layer trace shows why it is not a
+downstream loss: `events (0) · memories (0) · grants (0)`. The extractor
+returned valid JSON with an empty array; nothing was rejected, nothing was
+dropped, the model simply declined to record the sentence. Both failures that
+logged a model were `gpt-oss-20b`; the passing runs include `gpt-oss-120b`.
+
+Not tuned green, and the reasons are worth stating. Raising `aggressiveness`
+until this fixture passes optimises for one sentence. Retrying until the model
+says something turns "nothing durable here" — a CORRECT answer on most turns —
+into a thing we refuse to accept. And the gate is a product sentence, not a
+percentage; the honest version of it is "two times in three", which is a
+finding, not a pass. V1-T19 measures it properly and fixes it on evidence.
 
 ---
 

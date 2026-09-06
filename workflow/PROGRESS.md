@@ -10,10 +10,10 @@
 | | |
 |---|---|
 | **Phase** | **V0.1 — the vertical slice** (ADR-029 reorders Phases 2–9) |
-| **Phase status** | Memory Foundation v1 **FROZEN** (ADR-028). Persistence starting from zero — there are no migrations yet and every world tested so far lived in `InMemoryMemoryStore`. |
-| **Next task** | **V1-T01** migration runner, then 0001–0008 and `PostgresMemoryStore` |
-| **Blocked on** | Nothing. Supabase is provisioned; D-003 resolved by ADR-030. |
-| **Code** | 315 tests · typecheck green · lint green · secret scan in `pnpm check` |
+| **Phase status** | **The loop closes.** A stranger is remembered a day later — on 6 of 9 runs. Every failure is the same step, and it is extraction on first mention. |
+| **Next task** | **V1-T19** make first-mention extraction reliable, on evidence, then **V1-T18** play it as a user |
+| **Blocked on** | Nothing. Supabase provisioned, 9 migrations applied, RLS enforced through `asUser`. |
+| **Code** | 328 tests · typecheck green · lint green · `pnpm db:verify` green against Supabase |
 | **Money spent** | ₹0 |
 
 ### Where the memory foundation actually stands
@@ -32,13 +32,113 @@ because every benchmark worth running on the frozen foundation has been run.
 
 ### The next three things
 
-1. **V1-T01…T08** — the schema, `turns → events → projections → memory index`.
-2. **V1-T10** — `PostgresMemoryStore` passing the in-memory store's own suite.
-3. **V1-T17** — the return visit. The only number that matters now is 1 person.
+1. **V1-T19** — the same sentence must be captured on 9 runs in 10, not 6 in 9.
+2. **V1-T18** — play it as a user. The only number that matters now is 1 person.
+3. **V1-T20** — re-verify `gpt-oss-20b` for the widened category, or drop the
+   task class from its `verifiedTaskClasses`. ADR-022: competence is measured,
+   never assumed.
 
 ---
 
 ## Session log
+
+## 2026-09-06 (V0.1) — the loop closes, two times in three
+
+**Done** — V1-T01…T16 ☑ · V1-T17 ◐ (6 of 9) · ADR-030
+
+The product exists. A stranger signs up, makes a world and a character, has a
+conversation, closes the browser, comes back to a new session the next day, and
+is remembered:
+
+    you:   The ferry's not running. Should we wade across the channel instead?
+    Elena: And drown? Keep your boots dry. You'll stick to the shore while I
+           handle the water.
+    drew on: the user cannot swim, never learned
+
+Nothing in that question mentions swimming. The retrieval is machine-checked;
+the reply is left for a person to read, because a substring check for "swim"
+would score a character who recites the fact above one who acts on it — which is
+the exact failure ADR-026 already records about the matcher.
+
+### It passes 6 of 9. That is the headline, not the transcript above.
+
+Every failure is the same step: day one, the confession produces no event. The
+layer trace says where it was lost — `events (0) · memories (0) · grants (0)` —
+so it is not a downstream loss. The extractor returned valid JSON with an empty
+array, rejected nothing, dropped nothing, and simply declined to record the
+sentence.
+
+**Not tuned green.** Raising `aggressiveness` until this fixture passes optimises
+for one sentence; retrying until the model says something turns "nothing durable
+here" — the correct answer on most turns — into a thing we refuse to accept.
+V1-T19 measures it properly.
+
+### Three real bugs the acceptance test found, in the order it found them
+
+**1. The ontology had no slot for a fact about oneself.** "I can't swim. I never
+learned" produced nothing. A 10-sentence probe: **8 of 8 self-descriptions
+missed — inability, condition, history, identity, capability, constraint —
+while both controls were kept.** Not a judgement failure and not a parse failure;
+`preference_stated` was described as "a like, dislike, fear or refusal", under
+which an inability is none of them. Widening that one description: **2/10 →
+8/10** on the same probe. It stays ONE type rather than becoming two, because
+ADR-025's rule is that a type earns its place by feeding a projection nothing
+else feeds, and a trait and a preference both fold into the same PersonaFact.
+Still missing: past occupation and stated name. Recorded, not chased.
+
+**2. Nobody told the system Elena was in the room.** With the event finally
+stored, she still could not recall it: `audienceFor` restricts a
+`preference_stated` to its actor, and the extractor had not named her. The
+player was speaking directly to her and she could not remember a word of it.
+The wrong fix is loosening `audienceFor` — that rule fails closed because the
+extractor is demonstrably unreliable about who was present, and loosening it is
+what produced the Saltmarsh leak. The right fix is that the BACKEND knows who
+the conversation was between, the same class of fact as `worldDay` and
+`sourceTurn` which it already stamps. Being TOLD something is how a character
+legitimately learns it; the Saltmarsh leak was a character recorded as having
+SEEN something, which is a different claim.
+
+**3. The grant read the wrong field.** It mirrored `knownBy` — what the extractor
+fills in — instead of the stored audience, so it granted nothing whenever the
+model failed to name the listener, which is most of the time. The character held
+the event and could not retrieve the memory derived from it: two representations
+of one fact, disagreeing. That is the third time this codebase has hit that
+shape. It now goes through `canRecall`, the single implementation.
+
+### And one that would not have been found by reading
+
+`renderEventAsMemory`. Memories were being built by joining event fields, which
+produced
+
+    the user preference stated swimming cannot swim, never learned
+
+That retrieves correctly and reads like a database row — and it goes into the
+prompt under "WHAT YOU REMEMBER", read by the model that has to sound like it
+remembers. Now: `the user cannot swim, never learned`.
+
+### The finding that was not on the task list
+
+The `SchedulerRouter` lived in `packages/evals`, so the product could not use the
+scheduler every benchmark was measured through. Moving it to `@darkforest/ai`
+exposed `pool: "development"`, `environment: "local"`,
+`isSyntheticContent: true` — hardcoded. All three are true in the eval harness
+and **false in the product**, and `isSyntheticContent` gates whether real user
+conversations may reach providers whose terms permit training on them (ADR-013,
+ADR-009). It is now a required config field with no default, so a caller who
+forgets does not compile.
+
+**Learned** — an acceptance test written as a product sentence found four defects
+in an afternoon that three weeks of benchmarks did not, because it was the first
+thing to ask whether the parts work TOGETHER. None of them were in the memory
+architecture ADR-028 froze; all four were in the wiring around it.
+
+**Decided** — ADR-030 (Supabase Auth; the API connects as the user, never as
+`service_role`).
+
+**Next** — V1-T19: make first-mention extraction reliable, on evidence. Then
+V1-T18, played as a user rather than as its author.
+
+---
 
 ## 2026-09-06 (latest) — a second judge; V0.1 begins
 

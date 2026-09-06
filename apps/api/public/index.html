@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dark Forest</title>
+<style>
+  :root {
+    --bg: #0f1113;
+    --panel: #16191c;
+    --line: #24282c;
+    --text: #e6e3dd;
+    --dim: #8b9096;
+    --accent: #c9a227;
+    --player: #1d2226;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 ui-serif, Georgia, "Times New Roman", serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+  }
+  main { width: 100%; max-width: 720px; padding: 24px 16px 96px; }
+  h1 { font-size: 20px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 28px; font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: var(--dim); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: .06em; }
+  input, textarea, button {
+    width: 100%; font: inherit; color: var(--text);
+    background: #0c0e10; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  button {
+    background: var(--accent); color: #14100a; border: none; font-weight: 600;
+    cursor: pointer; margin-top: 16px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.link { background: none; color: var(--dim); text-decoration: underline; width: auto; padding: 4px 0; margin: 8px 0 0; font-weight: 400; }
+  .turn { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; }
+  .turn.player { background: var(--player); margin-left: 48px; }
+  .turn.character { border: 1px solid var(--line); margin-right: 48px; }
+  .who { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+  .recalled { font-size: 12px; color: var(--dim); margin: -8px 0 16px 0; padding-left: 14px; border-left: 2px solid var(--line); }
+  .error { color: #e2705f; font-size: 13px; margin-top: 12px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row textarea { flex: 1; }
+  .row button { width: 96px; margin: 0; }
+  .quiet { color: var(--dim); font-size: 13px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dark Forest</h1>
+  <p class="sub" id="sub">A world that remembers you.</p>
+
+  <!-- ── sign in ─────────────────────────────────────────────────────────── -->
+  <section id="auth" class="panel hidden">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" />
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" />
+    <button id="signin">Sign in</button>
+    <button id="signup" class="link">or create an account</button>
+    <p class="error" id="authError"></p>
+  </section>
+
+  <!-- ── first world ─────────────────────────────────────────────────────── -->
+  <section id="setup" class="panel hidden">
+    <p class="quiet">Nothing exists here yet. Make something.</p>
+    <label for="worldName">Your world</label>
+    <input id="worldName" placeholder="Saltmarsh" />
+    <label for="charName">Someone who lives in it</label>
+    <input id="charName" placeholder="Elena" />
+    <label for="charPersona">Who they are</label>
+    <textarea id="charPersona" placeholder="The harbourmaster's daughter. Watchful, dry, slow to trust."></textarea>
+    <button id="create">Begin</button>
+    <p class="error" id="setupError"></p>
+  </section>
+
+  <!-- ── the conversation ────────────────────────────────────────────────── -->
+  <section id="chat" class="hidden">
+    <div id="transcript"></div>
+    <div class="row">
+      <textarea id="message" placeholder="Say something."></textarea>
+      <button id="send">Send</button>
+    </div>
+    <p class="error" id="chatError"></p>
+    <button id="signout" class="link">sign out</button>
+  </section>
+</main>
+
+<script type="module">
+/*
+ * The whole client. No framework and no build step, deliberately — V0.1 is
+ * measured by whether a stranger's character remembers them tomorrow, and a
+ * bundler would be the first thing between us and finding that out.
+ *
+ * Auth talks to Supabase's REST endpoints directly rather than through the SDK:
+ * two fetch calls, no dependency, and the token handling stays visible.
+ */
+
+const cfg = await fetch("/config").then((r) => r.json()).then((r) => r.data);
+
+const $ = (id) => document.getElementById(id);
+const show = (id) => $(id).classList.remove("hidden");
+const hide = (id) => $(id).classList.add("hidden");
+
+/*
+ * The session lives in localStorage, and that IS the return visit.
+ *
+ * "Closes the browser, comes back tomorrow" only works if the token outlives
+ * the tab. sessionStorage would clear on close and every return would look like
+ * a new stranger — the product would appear to have no memory when in fact it
+ * simply had no idea who had come back.
+ */
+const store = {
+  get token() { try { return localStorage.getItem("df.token"); } catch { return null; } },
+  set token(v) {
+    try { v === null ? localStorage.removeItem("df.token") : localStorage.setItem("df.token", v); }
+    catch { /* private browsing; the session lasts this tab only */ }
+  },
+  get world() { try { return localStorage.getItem("df.world"); } catch { return null; } },
+  set world(v) { try { if (v) localStorage.setItem("df.world", v); } catch { /* ignore */ } },
+  get character() { try { return localStorage.getItem("df.character"); } catch { return null; } },
+  set character(v) { try { if (v) localStorage.setItem("df.character", v); } catch { /* ignore */ } },
+};
+
+let characterName = "";
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      ...(store.token ? { authorization: `Bearer ${store.token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    // The envelope's `message` is written to be shown. Anything else here would
+    // be us inventing wording the server deliberately controlled.
+    const err = new Error(body?.error?.message ?? "Something went wrong.");
+    err.code = body?.error?.code;
+    throw err;
+  }
+  return body.data;
+}
+
+async function supabaseAuth(kind, email, password) {
+  const path = kind === "signup" ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+  const res = await fetch(`${cfg.supabaseUrl}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: cfg.supabaseAnonKey },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.msg ?? body.error_description ?? "Could not sign in.");
+  if (!body.access_token) {
+    // Sign-up with email confirmation on returns no session. Say so plainly
+    // rather than leaving the user on a form that appeared to do nothing.
+    throw new Error("Check your email to confirm the account, then sign in.");
+  }
+  return body.access_token;
+}
+
+function renderTurns(turns) {
+  $("transcript").innerHTML = turns
+    .map((t) => {
+      const who = t.speaker === "player" ? "You" : characterName || "They";
+      const cls = t.speaker === "player" ? "player" : "character";
+      const safe = document.createElement("div");
+      safe.textContent = t.content;
+      return `<div class="turn ${cls}"><div class="who">${who}</div>${safe.innerHTML}</div>`;
+    })
+    .join("");
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function openWorld(worldId) {
+  store.world = worldId;
+  const characters = await api(`/worlds/${worldId}/characters`);
+  if (characters.length === 0) { showSetup(); return; }
+  store.character = characters[0].id;
+  characterName = characters[0].name;
+  $("sub").textContent = `${characterName} is here.`;
+  renderTurns(await api(`/worlds/${worldId}/turns`));
+  hide("auth"); hide("setup"); show("chat");
+}
+
+function showSetup() { hide("auth"); hide("chat"); show("setup"); }
+function showAuth() { hide("setup"); hide("chat"); show("auth"); }
+
+async function boot() {
+  if (!store.token) { showAuth(); return; }
+  try {
+    const worlds = await api("/worlds");
+    if (worlds.length === 0) { showSetup(); return; }
+    await openWorld(worlds[0].id);
+  } catch (e) {
+    // An expired token is the ordinary case here, not an incident.
+    store.token = null;
+    showAuth();
+  }
+}
+
+$("signin").onclick = async () => {
+  $("authError").textContent = "";
+  try {
+    store.token = await supabaseAuth("signin", $("email").value.trim(), $("password").value);
+    await boot();
+  } catch (e) { $("authError").textContent = e.message; }
+};
+
+$("signup").onclick = async () => {
+  $("authError").textContent = "";
+  try {
+    store.token = await supabaseAuth("signup", $("email").value.trim(), $("password").value);
+    await boot();
+  } catch (e) { $("authError").textContent = e.message; }
+};
+
+$("create").onclick = async () => {
+  $("setupError").textContent = "";
+  $("create").disabled = true;
+  try {
+    const world = await api("/worlds", {
+      method: "POST",
+      body: JSON.stringify({ name: $("worldName").value.trim() || "A world" }),
+    });
+    await api(`/worlds/${world.id}/characters`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: $("charName").value.trim() || "Elena",
+        persona: $("charPersona").value.trim(),
+      }),
+    });
+    await openWorld(world.id);
+  } catch (e) { $("setupError").textContent = e.message; }
+  finally { $("create").disabled = false; }
+};
+
+async function send() {
+  const text = $("message").value.trim();
+  if (text.length === 0) return;
+  $("chatError").textContent = "";
+  $("send").disabled = true;
+  $("message").value = "";
+
+  // The player's line appears immediately. Waiting several seconds to see your
+  // own words is the difference between a conversation and a form submission.
+  $("transcript").insertAdjacentHTML(
+    "beforeend",
+    `<div class="turn player"><div class="who">You</div>${new Option(text).innerHTML}</div>`,
+  );
+  window.scrollTo(0, document.body.scrollHeight);
+
+  try {
+    const result = await api(`/worlds/${store.world}/turns`, {
+      method: "POST",
+      body: JSON.stringify({ characterId: store.character, message: text }),
+    });
+    $("transcript").insertAdjacentHTML(
+      "beforeend",
+      `<div class="turn character"><div class="who">${characterName}</div>${new Option(result.reply).innerHTML}</div>` +
+        (result.recalled.length > 0
+          ? `<div class="recalled">drew on: ${result.recalled.map((r) => new Option(r.content).innerHTML).join(" · ")}</div>`
+          : ""),
+    );
+    window.scrollTo(0, document.body.scrollHeight);
+  } catch (e) {
+    $("chatError").textContent = e.message;
+  } finally {
+    $("send").disabled = false;
+    $("message").focus();
+  }
+}
+
+$("send").onclick = send;
+$("message").onkeydown = (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+};
+$("signout").onclick = () => { store.token = null; location.reload(); };
+
+boot();
+</script>
+</body>
+</html>

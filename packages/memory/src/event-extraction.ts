@@ -60,6 +60,19 @@ export type ExtractionOutcomeKind =
 
 export interface EventExtractionOutcome {
   events: WorldEvent[];
+  /**
+   * The model that ACTUALLY ran, for diagnostics.
+   *
+   * Top-level rather than inside `debug`, for two reasons: `debug` is attached
+   * only on failure paths, and the case that needed diagnosing was a SUCCESS
+   * that returned nothing; and `debug` carries raw model output, which must
+   * never reach a log (CLAUDE.md § 5). A model id is metadata, not content.
+   *
+   * It is `res.model`, not the descriptor handed in — the scheduler chooses by
+   * capability then capacity and ignores that argument, so reporting it would
+   * confidently name the wrong model.
+   */
+  modelId: string;
   rejected: EventRejection[];
   usage: { calls: number; inputTokens: number; outputTokens: number };
   /**
@@ -202,7 +215,7 @@ export async function extractEvents(
   const debug = {
     rawOutput: res.text,
     finishReason: res.finishReason,
-    modelId: model.id,
+    modelId: res.model,
     promptTokens: res.usage.inputTokens,
     outputTokens: res.usage.outputTokens,
     reasoningTokens: res.usage.reasoningTokens ?? 0,
@@ -221,6 +234,7 @@ export async function extractEvents(
     });
     return {
       events: [],
+      modelId: res.model,
       rejected,
       usage,
       proposed: 0,
@@ -236,6 +250,7 @@ export async function extractEvents(
     rejected.push({ reason: "schema", detail: parsed.error.issues[0]?.message ?? "schema mismatch" });
     return {
       events: [],
+      modelId: res.model,
       rejected,
       usage,
       proposed: 0,
@@ -284,6 +299,7 @@ export async function extractEvents(
 
   return {
     events,
+    modelId: res.model,
     rejected,
     usage,
     proposed: parsed.data.events.length,

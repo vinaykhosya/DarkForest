@@ -66,7 +66,28 @@ export function renderExtractEventsPrompt(input: ExtractEventsInput): {
     `                     when nobody acts and nothing is taken.`,
     `  relation_stated    how two people stand to each other`,
     `  relation_changed   that standing changed`,
-    `  preference_stated  a like, dislike, fear or refusal of a thing`,
+    /*
+     * WIDENED, because the V0.1 acceptance test failed here.
+     *
+     * A stranger told a character "I can't swim. I never learned" and the
+     * extractor returned valid JSON with zero events. A probe over 10 sentences
+     * then showed 8 of 8 self-descriptions missed — inability, condition,
+     * history, identity, capability, constraint — while both controls were
+     * kept. The vocabulary simply had nowhere to put a durable fact about
+     * oneself, and "a like, dislike, fear or refusal" is a fair reading under
+     * which "I can't swim" is none of them.
+     *
+     * It stays ONE type rather than becoming two. ADR-025's rule is that a type
+     * earns its place by feeding a projection that answers a question users
+     * ask, and a trait and a preference both fold into the same PersonaFact.
+     * A second type feeding one projection is a field the extractor can get
+     * wrong for no benefit.
+     */
+    `  preference_stated  something durable about a person: a like, dislike,`,
+    `                     fear or refusal, AND what they can or cannot do,`,
+    `                     where they are from, what they used to be, what they`,
+    `                     are called, what they are bound by. Not what they`,
+    `                     want right now - what they ARE.`,
     `  numeric_stated     a counted quantity`,
     `  world_event        something happened in the world at large`,
     ``,
@@ -111,6 +132,12 @@ export function renderExtractEventsPrompt(input: ExtractEventsInput): {
     `      "object":"movement in the cellar",`,
     `      "value":"the user heard something moving in the cellar",`,
     `      "knownBy":["the user"]}`,
+    `  "I can't swim. I never learned"`,
+    `     {"type":"preference_stated","actor":"the user","object":"swimming",`,
+    `      "value":"cannot swim, never learned"}`,
+    `  "I grew up in Ashford and left at fifteen"`,
+    `     {"type":"preference_stated","actor":"the user","object":"where they`,
+    `      are from","value":"grew up in Ashford, left at fifteen"}`,
     `  "The north bridge collapsed in the storm"`,
     `     {"type":"world_event","actor":"the world","object":"the north bridge",`,
     `      "value":"the north bridge collapsed in the storm"}`,

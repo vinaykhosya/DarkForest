@@ -18,6 +18,8 @@ export interface AppDeps extends TurnDeps {
   pool: DbPool;
   auth: Authenticator;
   isProduction: boolean;
+  /** Handed to the browser so it can sign in. Both values are public by design. */
+  publicConfig: { supabaseUrl: string; supabaseAnonKey: string };
 }
 
 const CreateWorld = z.object({
@@ -73,6 +75,19 @@ export function createApp(deps: AppDeps): Hono {
   // Liveness. Deliberately does NOT touch the database: a health check that
   // fails when the database is slow turns a degradation into an outage.
   app.get("/health", (c) => c.json(ok({ status: "ok" }, c.get("requestId") ?? "")));
+
+  /*
+   * What the browser needs to sign in.
+   *
+   * The anon key is PUBLISHABLE — it identifies the project and grants nothing
+   * on its own, because every table is behind RLS and every policy keys off
+   * `auth.uid()`. Serving it here rather than baking it into the HTML keeps one
+   * source of truth for it, and keeps the page identical across environments.
+   *
+   * This is the anon key and never the service-role key. The service-role key
+   * bypasses RLS entirely; it appears nowhere the browser can reach.
+   */
+  app.get("/config", (c) => c.json(ok(deps.publicConfig, c.get("requestId") ?? "")));
 
   /** Everything below requires a verified session. */
   const authed = async (c: { req: { header: (k: string) => string | undefined } }): Promise<Session> =>

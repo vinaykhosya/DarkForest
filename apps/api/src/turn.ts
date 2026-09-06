@@ -16,7 +16,7 @@ import {
   type DbPool,
 } from "@darkforest/db";
 import { extractEvents, retrieve } from "@darkforest/memory";
-import { openThreads } from "@darkforest/core";
+import { canRecall, openThreads, renderEventAsMemory } from "@darkforest/core";
 import { ApiError } from "./envelope.js";
 
 /**
@@ -189,8 +189,13 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
   /*
    * Extraction failing must NEVER cost the player their reply. The reply is
    * already generated and the turn already happened; a failed extraction means
-   * this exchange produced no events, which the next turn can live with. So it
-   * catches, and the turn continues.
+   * this exchange produced no events, which the next turn can live with.
+   *
+   * But it is REPORTED. The first version swallowed the error and returned
+   * null, and the first end-to-end run then showed "0 events extracted" with no
+   * way to tell a thrown error from a model that found nothing worth keeping —
+   * two completely different problems behind one number. A quiet catch is how a
+   * subsystem stops working without anybody noticing.
    */
   const extraction = await extractEvents(deps.router, deps.anyModel, {
     worldId,
@@ -208,7 +213,27 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
     // the extractor's own output internally ordered.
     nextSeq: 0,
     worldDay: prepared.worldDay,
-  }).catch(() => null);
+  }).catch((e: unknown) => {
+    process.stderr.write(
+      `  extraction threw for turn ${String(prepared.turn.seq)}: ` +
+        `${e instanceof Error ? e.message : String(e)}
+`,
+    );
+    return null;
+  });
+
+  if (extraction !== null && extraction.events.length === 0) {
+    // Nothing kept is a legitimate outcome — most turns contain no durable
+    // fact. `rejected` is what distinguishes "nothing worth keeping" from
+    // "four correct events thrown away by a validator", and those need
+    // different fixes.
+    process.stderr.write(
+      `  turn ${String(prepared.turn.seq)}: 0 events from ${String(extraction.proposed)} ` +
+        `attempt(s); model=${extraction.modelId}; ` +
+        `rejected=${extraction.rejected.map((r) => r.reason).join(",") || "none"}
+`,
+    );
+  }
 
   // ── 4. the reply and its events, in ONE transaction ───────────────────────
   const stored = await asUser(deps.pool, req.userId, async (db) => {
@@ -236,6 +261,15 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
       extraction.events,
       prepared.turn.seq,
       prepared.worldDay,
+      /*
+       * Both parties were in this exchange. The player typed it and this
+       * character answered it, so both heard every word — that is not an
+       * inference, it is what a two-party conversation IS.
+       *
+       * V0.2: with several characters this becomes the scene's cast, not every
+       * character in the world.
+       */
+      [PLAYER, prepared.who.name],
     );
 
     /*
@@ -245,9 +279,10 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
      */
     const store = new PostgresMemoryStore(db);
     for (const e of events) {
-      const content = [e.actor, e.type.replace(/_/g, " "), e.target, e.object, e.value]
-        .filter((p): p is string => typeof p === "string" && p.length > 0)
-        .join(" ");
+      // Rendered as a sentence, not as joined fields. This string goes into the
+      // prompt under "WHAT YOU REMEMBER", so it is read by the model that has
+      // to sound like it remembers.
+      const content = renderEventAsMemory(e);
       if (content.length < 8) continue;
       const memory = await store.insert({
         worldId,
@@ -259,17 +294,24 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
         // rather than deciding again — one rule, applied once.
         visibility: "restricted",
       });
-      // `audience` on the event is the authority; grants mirror it.
-      for (const name of e.knownBy.concat(e.actor)) {
-        if (name.toLowerCase() === prepared.who.name.toLowerCase()) {
-          await store.grantKnowledge(characterId, memory.id, "witnessed", 1, e.worldDay);
-        }
+      /*
+       * The grant mirrors the event's STORED AUDIENCE, which is the authority.
+       *
+       * The first version read `knownBy` instead — the field the extractor
+       * fills in — and so granted nothing whenever the model failed to name the
+       * listener, which is most of the time. The character held the event and
+       * could not retrieve the memory derived from it: two representations of
+       * one fact, disagreeing, which is the defect this codebase has now hit
+       * three times.
+       *
+       * `canRecall` is the single implementation of "may this person recall
+       * this", so it is what decides.
+       */
+      if (canRecall(e, prepared.who.name)) {
+        await store.grantKnowledge(characterId, memory.id, "told", 1, e.worldDay);
       }
-      if (e.actor === PLAYER || e.knownBy.some((n) => n.toLowerCase() === PLAYER)) {
-        // The player is not a character row, so their knowledge is carried by
-        // the event log alone. Nothing to grant here; noted so the asymmetry
-        // does not read as an omission.
-      }
+      // The player has no character row, so their own knowledge is carried by
+      // the event log alone. Noted so the asymmetry does not read as an omission.
     }
     return events.length;
   });

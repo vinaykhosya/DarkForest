@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
+import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import {
   CloudflareEmbeddingProvider,
   CredentialRegistry,
@@ -143,7 +146,27 @@ const app = createApp({
       : { jwtSecret: env["SUPABASE_JWT_SECRET"] }),
   }),
   isProduction,
+  publicConfig: {
+    supabaseUrl: required(env, "SUPABASE_URL"),
+    // The ANON key. Publishable by design: it identifies the project and grants
+    // nothing on its own, because every policy keys off auth.uid(). The
+    // service-role key bypasses RLS and appears nowhere near the browser.
+    supabaseAnonKey: required(env, "SUPABASE_ANON_KEY"),
+  },
 });
+
+/*
+ * The page is served by the API, on one origin.
+ *
+ * Not for convenience: a separate origin means CORS, and CORS on an
+ * authenticated API is a configuration with a wrong answer that looks like it
+ * works. One origin has no wrong answer.
+ */
+// `root` is resolved against the CWD, not against this file, so it is computed
+// from the repo root that `pnpm api` runs in. A path relative to import.meta.url
+// silently serves nothing.
+const publicDir = relative(process.cwd(), fileURLToPath(new URL("../public", import.meta.url)));
+app.use("/*", serveStatic({ root: publicDir.replace(/\\/g, "/") }));
 
 const port = Number(env["PORT"] ?? "8787");
 serve({ fetch: app.fetch, port }, (info) => {

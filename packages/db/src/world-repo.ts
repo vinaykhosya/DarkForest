@@ -24,6 +24,24 @@ import type { DbClient } from "./client.js";
 
 export type Speaker = "player" | "character" | "narrator";
 
+/**
+ * Removes bytes Postgres cannot store in a `text` column.
+ *
+ * A NUL is not "unusual text" to Postgres — it cannot be represented at all,
+ * and the driver reports `invalid byte sequence for encoding "UTF8": 0x00`,
+ * which reads like a database or locale problem rather than what it is: a model
+ * emitted a stray control character and the whole turn was rejected with a 500.
+ *
+ * Applied at the persistence boundary rather than at the provider, because
+ * EVERY path that stores generated text needs it and a provider-side fix
+ * protects only the paths that go through that provider. Other control
+ * characters are stored as-is; only the ones that cannot round-trip go.
+ */
+function storable(s: string): string {
+  // eslint-disable-next-line no-control-regex -- NUL is the specific byte Postgres rejects.
+  return s.replace(/\u0000/g, "");
+}
+
 export interface NewTurn {
   worldId: string;
   speaker: Speaker;
@@ -99,7 +117,7 @@ export async function appendTurn(db: DbClient, turn: NewTurn): Promise<StoredTur
       seq,
       turn.speaker,
       turn.speaker === "character" ? (turn.characterId ?? null) : null,
-      turn.content,
+      storable(turn.content),
       turn.worldDay,
     ],
   );
@@ -122,6 +140,32 @@ export async function appendEvents(
   proposed: readonly ProposedEvent[],
   sourceTurn: number,
   worldDay: number,
+  /*
+   * WHO WAS DEMONSTRABLY IN THE EXCHANGE. Backend ground truth, not inference.
+   *
+   * The V0.1 acceptance test failed here after extraction was fixed. A stranger
+   * told Elena "I can't swim", the event stored correctly, and Elena could not
+   * recall it a day later — because `audienceFor` restricts a
+   * `preference_stated` to its actor, and the extractor had not named Elena as
+   * the target. The player was speaking directly to her and she could not
+   * remember a word of it.
+   *
+   * The wrong fix is to loosen `audienceFor`. That rule fails closed because
+   * the extractor is demonstrably unreliable about who was present, and
+   * loosening it is what produced the Saltmarsh leak.
+   *
+   * The right fix is that the BACKEND knows something the extractor does not:
+   * who this conversation was between. That is not a guess — it is the same
+   * class of fact as `worldDay` and `sourceTurn`, which the backend also stamps
+   * rather than asking the model to echo. Being TOLD something is how a
+   * character legitimately learns it; the Saltmarsh leak was a character
+   * recorded as having SEEN something, which is a different claim entirely.
+   *
+   * V0.2 CAUTION: with several characters this must come from the SCENE — who
+   * was actually there — and never from "every character in the world". The
+   * moment it means the latter, isolation is gone.
+   */
+  present: readonly string[] = [],
 ): Promise<WorldEvent[]> {
   const stored: WorldEvent[] = [];
 
@@ -161,6 +205,17 @@ export async function appendEvents(
       );
     }
 
+    // The rule's output, plus whoever the backend knows was in the room.
+    // Case-insensitive union, keeping the first spelling seen.
+    const seen = new Set<string>();
+    const finalAudience: string[] = [];
+    for (const name of [...audience.who, ...present]) {
+      const key = name.trim().toLowerCase();
+      if (key.length === 0 || seen.has(key)) continue;
+      seen.add(key);
+      finalAudience.push(name);
+    }
+
     const { rows } = await db.query<EventRow>(
       `insert into events
          (world_id, world_day, seq, type, actor, target, object, value, quantity,
@@ -175,17 +230,17 @@ export async function appendEvents(
         worldDay,
         seq,
         p.type,
-        p.actor,
-        p.target,
-        p.object,
-        p.value,
+        storable(p.actor),
+        p.target === null ? null : storable(p.target),
+        p.object === null ? null : storable(p.object),
+        p.value === null ? null : storable(p.value),
         p.quantity,
-        p.location,
-        [...p.participants],
+        p.location === null ? null : storable(p.location),
+        p.participants.map(storable),
         p.visibility,
-        [...p.knownBy],
+        p.knownBy.map(storable),
         p.importance,
-        [...audience.who],
+        finalAudience,
         sourceTurn,
         p.causedBy,
       ],
