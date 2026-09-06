@@ -250,7 +250,14 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
     // question whose correct answer is "I don't know", which is what she said.
     perspective: "player",
     askedOf: "the user",
-    question: "Why do I owe Tolven anything?",
+    /*
+     * Sharpened. The old phrasing had two true answers - the lantern promise
+     * and the rescue - and the model gave the lantern, which was scored a miss
+     * for answering a question the probe did not mean to ask. Fourth probe of
+     * mine to punish correct behaviour; the fix is a question with one answer,
+     * not a wider expect list.
+     */
+    question: "What happened between me and Tolven out on the water?",
     expect: ["pulled", "water", "channel", "under", "saved"],
     at: 47,
     why: "A relationship changed because of a specific event. The reason must survive, not just the fact that something changed.",

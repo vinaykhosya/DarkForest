@@ -135,8 +135,13 @@ const MODELS: GroqModelSpec[] = [
   { id: QWEN_38, tier: "standard", reasoning: true, verifiedTaskClasses: PROSE_ONLY },
 ];
 
-/** Task classes whose output must parse. These need JSON mode and a token headroom. */
-const STRUCTURED_TASKS = new Set(["extract", "plan", "classify", "moderate", "inject_scan", "consolidate"]);
+/*
+ * STRUCTURED_TASKS used to live here, gating reasoning_effort. It is gone
+ * rather than left unused: reasoning is now minimised on every task class, and
+ * a constant that implies a distinction the provider no longer makes is worse
+ * than no constant. The reasoning headroom keys off the model spec, and JSON
+ * mode keys off the caller passing a responseSchema.
+ */
 
 /**
  * Extra output budget for reasoning models.
@@ -392,7 +397,6 @@ export class GroqProvider implements AIProvider {
     ];
 
     const spec = this.specs.get(model.id);
-    const structured = STRUCTURED_TASKS.has(req.taskClass);
 
     const body: Record<string, unknown> = {
       model: model.id,
@@ -404,9 +408,22 @@ export class GroqProvider implements AIProvider {
       temperature: req.temperature,
     };
 
-    // Minimise reasoning on structured tasks: extraction is transcription, not
-    // deliberation, and every reasoning token is a token of TPM spent.
-    if (spec?.supportsEffortLevels === true && structured) {
+    /*
+     * Minimise reasoning on EVERY task class, not only structured ones.
+     *
+     * This used to be gated on `structured`, which excluded `dialogue` — the one
+     * task class a user actually sees. With max_tokens sized for a character's
+     * reply, a default-effort trace consumed the whole budget and the model
+     * returned reasoning and no speech. In the gauntlet that produced eight
+     * empty answers out of eleven end-to-end misses, every one of them on a
+     * probe where the character DID hold the right facts. It read as a memory
+     * failure and was a token-budget failure.
+     *
+     * Extraction is transcription and dialogue is performance; neither is
+     * deliberation. Removing the special case removes the hole rather than
+     * adding `dialogue` to a list that will be incomplete again next time.
+     */
+    if (spec?.supportsEffortLevels === true) {
       body["reasoning_effort"] = "low";
     }
 
