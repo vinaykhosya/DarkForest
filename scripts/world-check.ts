@@ -5,6 +5,8 @@ import {
   appendEvents,
   appendTurn,
   asSystem,
+  claimTurnSlot,
+  releaseTurnSlot,
   createPool,
   projectFor,
   recallableEvents,
@@ -211,6 +213,40 @@ async function main(): Promise<void> {
           after.commitments.filter((x) => x.status === "open").length === 0,
           `${String(after.commitments.length)} commitment(s), none open`,
         );
+
+        // ── the turn slot: one turn at a time, per world ───────────────────
+        report(
+          "the first caller claims the turn slot",
+          await claimTurnSlot(c, worldId),
+          "claimed",
+        );
+        report(
+          "a SECOND caller is refused while it is held",
+          !(await claimTurnSlot(c, worldId)),
+          "refused — the API turns this into CONVERSATION_BUSY",
+        );
+        await releaseTurnSlot(c, worldId);
+        report(
+          "and can claim it once released",
+          await claimTurnSlot(c, worldId),
+          "claimed again",
+        );
+
+        /*
+         * The crash path. A process that dies holding the slot must not wedge
+         * the world forever, so the claim expires — verified by ageing it past
+         * the window rather than by waiting two minutes.
+         */
+        await c.query(
+          "update world_state set generating_since = now() - interval '3 minutes' where world_id = $1",
+          [worldId],
+        );
+        report(
+          "a stale claim expires rather than wedging the world",
+          await claimTurnSlot(c, worldId),
+          "a dead process cannot lock a world permanently",
+        );
+        await releaseTurnSlot(c, worldId);
 
         const turns = await recentTurns(c, worldId, 10);
         report(

@@ -26,3 +26,4 @@ export * from "./world/query-router.js";
 export * from "./world/resolver.js";
 export * from "./world/knowledge.js";
 export * from "./world/render.js";
+export * from "./world/memory-kind.js";

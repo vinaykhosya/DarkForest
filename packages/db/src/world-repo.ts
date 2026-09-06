@@ -129,6 +129,43 @@ function toEvent(r: EventRow): WorldEvent {
   };
 }
 
+/**
+ * Claims the world's single turn slot, or reports that one is already running.
+ *
+ * The claim is a conditional UPDATE, so it is atomic: two callers race, exactly
+ * one sees `rowCount === 1`, and the loser is told the world is busy rather than
+ * silently interleaving with the winner. See `0010_turn_slot.sql` for why this
+ * is a timestamp column and not an advisory lock.
+ *
+ * `STALE_AFTER` is the recovery mechanism. A process that dies between claiming
+ * and releasing leaves the claim behind, and after two minutes anyone may take
+ * it — comfortably longer than the 30-second generation timeout, short enough
+ * that a person retrying does not give up first.
+ */
+const STALE_AFTER = "2 minutes";
+
+export async function claimTurnSlot(db: DbClient, worldId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `update world_state
+        set generating_since = now()
+      where world_id = $1
+        and (generating_since is null or generating_since < now() - interval '${STALE_AFTER}')`,
+    [worldId],
+  );
+  return rowCount === 1;
+}
+
+/**
+ * Releases the slot. Safe to call when not held, and safe to call twice.
+ *
+ * Never throws for the caller's sake: this runs on the failure path, where the
+ * error worth reporting is the one that caused the failure, not a secondary
+ * problem clearing a flag that expires by itself in two minutes.
+ */
+export async function releaseTurnSlot(db: DbClient, worldId: string): Promise<void> {
+  await db.query("update world_state set generating_since = null where world_id = $1", [worldId]);
+}
+
 /** Appends one turn, taking its sequence number under the world's row lock. */
 export async function appendTurn(db: DbClient, turn: NewTurn): Promise<StoredTurn> {
   const { rows: seqRows } = await db.query<{ next_turn_seq: number }>(

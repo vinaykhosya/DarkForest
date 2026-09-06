@@ -11,6 +11,8 @@ export { PostgresMemoryStore } from "./memory-store.js";
 export {
   appendEvents,
   appendTurn,
+  claimTurnSlot,
+  releaseTurnSlot,
   inAudience,
   currentWorldDay,
   projectFor,

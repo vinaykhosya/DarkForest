@@ -4,6 +4,7 @@ import type {
   MemoryId,
   EmbeddingProvider,
   ModelDescriptor,
+  WorldEvent,
   WorldId,
 } from "@darkforest/contracts";
 import {
@@ -11,14 +12,16 @@ import {
   appendEvents,
   appendTurn,
   asUser,
+  claimTurnSlot,
   inAudience,
+  releaseTurnSlot,
   currentWorldDay,
   projectFor,
   recentTurns,
   type DbPool,
 } from "@darkforest/db";
 import { extractEvents, retrieve } from "@darkforest/memory";
-import { openThreads, renderEventAsMemory } from "@darkforest/core";
+import { memoryKindForEvent, openThreads, renderEventAsMemory } from "@darkforest/core";
 import { ApiError } from "./envelope.js";
 
 /**
@@ -78,12 +81,49 @@ const RECALL_LIMIT = 6;
 /** ADR-012/ADR-020: the compact profile is mandatory, not an optimisation. */
 const RECALL_TOKEN_BUDGET = 700;
 
-export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnResult> {
-  const worldId = req.worldId as WorldId;
-  const characterId = req.characterId as CharacterId;
+/**
+ * A rendered event, cut to what `MemoryContentSchema` accepts (8..200 chars).
+ *
+ * Truncation happens at a WORD boundary. A hard `slice(0, 200)` cuts mid-word,
+ * and this string is not a log line — it goes into the prompt under "WHAT YOU
+ * REMEMBER", where a severed word is a small piece of nonsense the character
+ * then has to speak around.
+ *
+ * Returns null when the result is too short to be a fact, so the caller can
+ * report it rather than skip silently.
+ */
+function fitToMemory(rendered: string): string | null {
+  const text = rendered.trim();
+  if (text.length < 8) return null;
+  if (text.length <= 200) return text;
+  const cut = text.slice(0, 200);
+  const lastSpace = cut.lastIndexOf(" ");
+  // Only back off to the boundary if it does not cost most of the sentence.
+  return (lastSpace > 160 ? cut.slice(0, lastSpace) : cut).trimEnd();
+}
 
-  // ── 1. the player's turn, and everything needed to answer it ──────────────
-  const prepared = await asUser(deps.pool, req.userId, async (db) => {
+/** Whether an event names this character in any role. Exact match, never fuzzy. */
+function namesThisCharacter(e: WorldEvent, name: string): boolean {
+  const target = name.trim().toLowerCase();
+  const named = [e.actor, e.target, ...e.participants, ...e.knownBy];
+  return named.some((n) => typeof n === "string" && n.trim().toLowerCase() === target);
+}
+
+/**
+ * Step 1, as its own function: claim the slot, store the player's turn, and
+ * gather everything needed to answer it — all in ONE transaction.
+ *
+ * Separated from the rest so the slot's lifetime is visible at a glance in
+ * `runTurn`: claimed here, released there, with nothing in between that could
+ * return early without passing the release.
+ */
+async function prepareTurn(
+  deps: TurnDeps,
+  req: TurnRequest,
+  worldId: WorldId,
+  characterId: CharacterId,
+) {
+  return asUser(deps.pool, req.userId, async (db) => {
     const character = await db.query<{ name: string; persona: string; speech_style: string }>(
       `select name, persona, speech_style from characters
         where id = $1 and world_id = $2 and deleted_at is null`,
@@ -94,6 +134,22 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
     // worlds, so "it exists but is not yours" is a distinction we should not
     // draw for the caller (docs/10 § 3).
     if (who === undefined) throw new ApiError("NOT_FOUND", "That character could not be found.");
+
+    /*
+     * Claim the world's turn slot BEFORE anything is written.
+     *
+     * Two turns in flight interleave — two player lines, then two replies, each
+     * generated without the other's question — and the transcript is the record
+     * every projection folds from, so an interleaved one is corrupt rather than
+     * merely untidy. Two browser tabs is enough to cause it.
+     *
+     * Claiming first means a rejected turn writes nothing at all.
+     */
+    if (!(await claimTurnSlot(db, worldId))) {
+      throw new ApiError("CONVERSATION_BUSY", "They are still thinking. One moment.", {
+        retryAfter: 5,
+      });
+    }
 
     const worldDay = await currentWorldDay(db, worldId);
     const turn = await appendTurn(db, {
@@ -123,7 +179,42 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
 
     return { who, worldDay, turn, retrieved, projection, history };
   });
+}
 
+export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnResult> {
+  const worldId = req.worldId as WorldId;
+  const characterId = req.characterId as CharacterId;
+
+  const prepared = await prepareTurn(deps, req, worldId, characterId);
+
+  /*
+   * From here the slot is HELD, so every exit must release it. The stale
+   * timeout in the migration is the backstop for a process that dies outright;
+   * it is not an excuse to leak the claim on an ordinary error, which would
+   * block the player's own retry for two minutes.
+   */
+  try {
+    return await generateAndStore(deps, req, worldId, characterId, prepared);
+  } catch (e) {
+    await asUser(deps.pool, req.userId, async (db) => {
+      await releaseTurnSlot(db, worldId);
+    }).catch(() => {
+      // Secondary. The error worth reporting is the one that got us here, and
+      // the claim expires by itself either way.
+    });
+    throw e;
+  }
+}
+
+type Prepared = Awaited<ReturnType<typeof prepareTurn>>;
+
+async function generateAndStore(
+  deps: TurnDeps,
+  req: TurnRequest,
+  worldId: WorldId,
+  characterId: CharacterId,
+  prepared: Prepared,
+): Promise<TurnResult> {
   // ── 2. generation, OUTSIDE any transaction ────────────────────────────────
   const threads = openThreads(prepared.projection);
   const knows = prepared.retrieved.memories.map((m) => `  ${m.memory.content}`);
@@ -274,6 +365,15 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
 
   // ── 4. the reply and its events, in ONE transaction ───────────────────────
   const stored = await asUser(deps.pool, req.userId, async (db) => {
+    /*
+     * Released in the SAME transaction that commits the reply. If this
+     * transaction rolls back, the slot stays claimed and the whole turn is
+     * undone together — the alternative, releasing separately, can free the
+     * world while the reply is lost, which invites a second turn into a
+     * transcript the first one is still going to write to.
+     */
+    await releaseTurnSlot(db, worldId);
+
     await appendTurn(db, {
       worldId,
       speaker: "character",
@@ -320,14 +420,41 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
       // Rendered as a sentence, not as joined fields. This string goes into the
       // prompt under "WHAT YOU REMEMBER", so it is read by the model that has
       // to sound like it remembers.
-      const content = renderEventAsMemory(e);
-      if (content.length < 8) continue;
+      const content = fitToMemory(renderEventAsMemory(e));
+      if (content === null) {
+        /*
+         * An event whose rendering is too short to be a fact leaves the world
+         * holding something no character can retrieve — the same shape as the
+         * grant bug: two representations of one fact, disagreeing. It should be
+         * impossible, so it is reported rather than skipped in silence.
+         */
+        process.stderr.write(
+          `  event ${e.type} on turn ${String(prepared.turn.seq)} rendered too short ` +
+            `to store as a memory; the event is kept and nothing can recall it\n`,
+        );
+        continue;
+      }
       const memory = await store.insert({
         worldId,
-        kind: "episodic",
-        content: content.slice(0, 200),
+        /*
+         * Derived from the event type, NOT hardcoded. `kind` selects the decay
+         * half-life — episodic 30 days, persona 180, world never — and every
+         * memory used to be filed `episodic`, so a stated trait faded like an
+         * errand. See core/world/memory-kind.ts.
+         */
+        kind: memoryKindForEvent(e.type),
+        content,
         worldDay: e.worldDay,
         importance: e.importance,
+        /*
+         * Who this memory is ABOUT, which `characterRelevance` scores. Set only
+         * when the event actually names this character — an exact fact, never a
+         * guess. Left unset, every memory scored the same 0.1 "not about
+         * anyone", and the term contributed nothing to any ranking.
+         */
+        subjects: namesThisCharacter(e, prepared.who.name)
+          ? [`character:${characterId}`]
+          : [],
         // The event already decided who may know this. The memory inherits it
         // rather than deciding again — one rule, applied once.
         visibility: "restricted",

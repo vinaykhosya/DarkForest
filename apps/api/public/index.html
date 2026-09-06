@@ -271,6 +271,19 @@ async function send() {
     window.scrollTo(0, document.body.scrollHeight);
   } catch (e) {
     $("chatError").textContent = e.message;
+    /*
+     * RE-SYNC rather than guess. The player's line was added optimistically so
+     * they can see their own words immediately, but whether the SERVER kept it
+     * depends on which error this was: a failed generation stores the turn and
+     * loses only the reply, while a busy world stores nothing at all. Deciding
+     * locally which happened means maintaining a second model of the server's
+     * rules, and the transcript is the ground truth — so ask it.
+     */
+    try {
+      renderTurns(await api(`/worlds/${store.world}/turns`));
+    } catch {
+      // Offline. The optimistic line stays; the next successful load corrects it.
+    }
   } finally {
     $("send").disabled = false;
     $("message").focus();
@@ -281,7 +294,15 @@ $("send").onclick = send;
 $("message").onkeydown = (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 };
-$("signout").onclick = () => { store.token = null; location.reload(); };
+$("signout").onclick = () => {
+  // The world and character ids go too. They belong to the account that is
+  // leaving, and leaving them behind points the next sign-in at someone else's
+  // world id — which RLS correctly refuses, as a confusing empty screen.
+  store.token = null;
+  try { localStorage.removeItem("df.world"); localStorage.removeItem("df.character"); }
+  catch { /* private browsing; nothing was stored to remove */ }
+  location.reload();
+};
 
 boot();
 </script>
