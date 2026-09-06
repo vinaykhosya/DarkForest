@@ -59,8 +59,35 @@ export function audienceFor(e: WorldEvent): Audience {
     return out;
   };
 
+  /*
+   * PERCEPTION IS THE OBSERVER'S, and `knownBy` is IGNORED here.
+   *
+   * This is the third form of the same leak and the one that finally explained
+   * it. The extractor emitted:
+   *
+   *   observed  actor="the user"  knownBy=["the user", "Elena"]
+   *   value: "the user observed a sealed door behind the racks"
+   *
+   * Elena was not in the cellar. She was merely in the cast and in nearby turns,
+   * and the model added her as a witness. The audience rule then did exactly
+   * what it was told, and a character described a door she had never seen.
+   *
+   * A focused probe could not reproduce it, because in a three-turn window Elena
+   * does not appear at all and the model correctly wrote knownBy=["the user"].
+   * The bug needs the full transcript to surface, which is why it read as
+   * intermittent and unexplained across four runs.
+   *
+   * So the audience for a perception is not taken from the model. Someone else
+   * seeing the same thing is their own observation, or is stated in the text and
+   * becomes a `revealed`.
+   *
+   * COST, accepted: "Elena and I both watched the beacon" now reaches only the
+   * player, and Elena will not recall something she genuinely witnessed. That is
+   * the correct direction — forgetting reads as ordinary imperfect memory, and
+   * knowing a secret nobody told you reads as the world being fake.
+   */
   if (e.type === "observed") {
-    return { kind: "restricted", who: only([e.actor, ...named]) };
+    return { kind: "restricted", who: only([e.actor]) };
   }
   if (e.type === "revealed") {
     return {

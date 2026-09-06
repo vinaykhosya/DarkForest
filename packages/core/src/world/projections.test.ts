@@ -218,7 +218,19 @@ describe("project — observation is knowledge, not world truth", () => {
     expect(p.observations[0]?.knownBy).toEqual(["the user"]);
   });
 
-  it("honours an explicit knownBy when several people saw it", () => {
+  it("does NOT honour knownBy on an observation, deliberately", () => {
+    /*
+     * Reversed. This asserted the opposite until the saved leak evidence showed
+     * the extractor writing knownBy=["the user", "Elena"] on a perception Elena
+     * was not present for — she was merely in the cast and in nearby turns. The
+     * audience rule obeyed, and a character described a cellar she had never
+     * entered.
+     *
+     * Perception is now the observer's alone; a second witness is their own
+     * observation, or is stated in the text and becomes a `revealed`. The cost
+     * is that a genuinely shared sighting is narrowed too, which is the safe
+     * direction. See world/knowledge.ts.
+     */
     const p = project([
       ev({
         type: "observed",
@@ -227,7 +239,7 @@ describe("project — observation is knowledge, not world truth", () => {
         knownBy: ["the user", "Elena"],
       }),
     ]);
-    expect(p.observations[0]?.knownBy).toEqual(["the user", "Elena"]);
+    expect(p.observations[0]?.knownBy).toEqual(["the user"]);
   });
 
   it("separates observing a thing from the event that created it", () => {

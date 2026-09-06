@@ -61,6 +61,41 @@ describe("isolation fails closed", () => {
     expect(canRecall(told, "Elena")).toBe(false);
   });
 
+  it("IGNORES knownBy on an observation, because the extractor over-includes", () => {
+    /*
+     * The leak, in its final form. Across four gauntlet runs a character kept
+     * describing a cellar she had never entered, and the saved events showed
+     * why: the extractor wrote knownBy=["the user", "Elena"] on the player's
+     * own perception. Elena was not there. She was in the cast and in nearby
+     * turns, and the model made her a witness.
+     *
+     * A focused probe could not reproduce it — in a three-turn window Elena
+     * never appears and the model gets it right — which is why this read as
+     * intermittent for so long.
+     */
+    const seen = ev({
+      type: "observed",
+      actor: PLAYER,
+      knownBy: [PLAYER, "Elena"],
+      value: "a sealed door behind the racks",
+    });
+    expect(canRecall(seen, PLAYER)).toBe(true);
+    expect(canRecall(seen, "Elena")).toBe(false);
+  });
+
+  it("accepts the cost: a genuine shared sighting is narrowed too", () => {
+    // Stated rather than hidden. Elena really did watch the beacon and will not
+    // recall it. Forgetting reads as imperfect memory; knowing a secret nobody
+    // told you reads as the world being fake.
+    const both = ev({
+      type: "observed",
+      actor: PLAYER,
+      knownBy: [PLAYER, "Elena"],
+      value: "the beacon on the headland",
+    });
+    expect(canRecall(both, "Elena")).toBe(false);
+  });
+
   it("widens to everyone explicitly named and no further", () => {
     const told = ev({
       type: "revealed",
