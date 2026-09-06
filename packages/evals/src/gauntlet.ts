@@ -31,7 +31,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
 import type { WorldEvent } from "@darkforest/contracts";
-import { PLAYER, recallableBy } from "@darkforest/core";
+import { PLAYER, project, recallableBy, resolve, routeQuery } from "@darkforest/core";
 import { extractEvents } from "@darkforest/memory";
 import { capturesFact, type PlantedFact } from "./contract/evaluation-contract.js";
 import { SchedulerRouter } from "./scheduler-router.js";
@@ -132,6 +132,17 @@ interface ProbeResult {
   answerLeak: boolean;
   /** A forbidden-in-answer term surfaced. Quality, never a boundary breach. */
   answerNoisy: boolean;
+  /** Stage-by-stage trace. The first `false` is where the fact was lost. */
+  layers: {
+    extracted: boolean;
+    audience: boolean;
+    /** The question routed to a projection at all. */
+    projected: boolean;
+    /** The resolver actually returned the fact. */
+    routed: boolean;
+    routedTo: string | null;
+    inContext: boolean;
+  };
   knownEventCount: number;
 }
 
@@ -235,6 +246,33 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
         const structuralCaptured = probe.expect.length === 0 ? true : capturesFact(known, asFacts);
 
         /*
+         * WHERE A MISS HAPPENED, stage by stage.
+         *
+         * "Structural miss" is as undifferentiated as "not retrieved" was before
+         * the retrieval funnel, and it hides four different bugs with four
+         * different fixes. Each stage below can only fail if the one above it
+         * succeeded, so the first false is the culprit.
+         *
+         *   extracted   the event was never written        -> extraction
+         *   audience    written, but this viewer cannot see it -> isolation too tight
+         *   projected   visible, but the fold lost it      -> projection
+         *   routed      folded, but the resolver missed it -> query routing
+         *   inContext   resolved, but never reached the model -> context builder
+         */
+        const inAnyEvent = probe.expect.length === 0 || capturesFact(events, asFacts);
+        const inAudience = probe.expect.length === 0 || capturesFact(known, asFacts);
+        const projection = project(known);
+        const routing = routeQuery(probe.question, [...world.aliases]);
+        const resolved =
+          routing.intent === null ? [] : resolve(routing.intent, projection).lines;
+        const inResolved =
+          probe.expect.length === 0
+            ? true
+            : resolved.some((l) =>
+                probe.expect.some((t) => l.toLowerCase().includes(t.toLowerCase())),
+              );
+
+        /*
          * A LEAK is only ever a forbidKnown hit. `forbidInAnswer` marks a
          * quality problem — a detail the viewer may legitimately know but that
          * should not crowd out the answer.
@@ -250,6 +288,10 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
           capturesFact(known, { ...asFacts, expect: probe.forbidKnown ?? [] });
 
         const lines = known.map(renderLine).filter((l) => l.trim().length > 0);
+        const inContext =
+          probe.expect.length === 0
+            ? true
+            : lines.some((l) => probe.expect.some((t) => l.toLowerCase().includes(t.toLowerCase())));
         const answer = await answerAsCharacter(router, world, probe, lines);
         const lowerAnswer = answer.toLowerCase();
         const answerCaptured =
@@ -272,6 +314,14 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
           answerCaptured,
           answerLeak,
           answerNoisy,
+          layers: {
+            extracted: inAnyEvent,
+            audience: inAudience,
+            projected: routing.intent !== null,
+            routed: inResolved,
+            routedTo: routing.matched,
+            inContext,
+          },
           knownEventCount: known.length,
         });
       }
@@ -404,10 +454,57 @@ ANSWER NOISE — ${String(noisy.length)} of ` +
   );
   for (const nz of noisy) console.log(`  noisy  ${nz.probe.id}  ${nz.probe.question}`);
 
+  // ── where structural misses were lost ────────────────────────────────────
+  const structMisses = all.filter((r) => !r.structuralCaptured);
+  console.log("\n" + "-".repeat(78));
+  console.log(`WHERE STRUCTURAL MISSES WERE LOST — ${String(structMisses.length)} probe(s)`);
+  if (structMisses.length === 0) console.log("  none");
+  for (const m of structMisses) {{
+    const L = m.layers;
+    const stage = !L.extracted
+      ? "EXTRACTION   the event was never written"
+      : !L.audience
+        ? "ISOLATION    written, but this viewer cannot see it (too tight)"
+        : !L.projected
+          ? `ROUTING      no projection matched the question (routedTo=${L.routedTo ?? "none"}})`
+          : !L.routed
+            ? "PROJECTION   routed, but the fold or resolver did not surface it"
+            : !L.inContext
+              ? "CONTEXT      resolved, but never reached the model"
+              : "UNKNOWN      every stage reports success";
+    console.log(`  ${m.probe.id.padEnd(22)} ${m.probe.dimension.padEnd(14)} ${stage}`);
+    console.log(`      Q: ${m.probe.question}`);
+  }}
+
   // ── verdict ──────────────────────────────────────────────────────────────
   const total = all.length;
   const endToEnd = all.filter((r) => r.answerCaptured && !r.answerLeak).length;
   const structural = all.filter((r) => r.structuralCaptured && !r.structuralLeak).length;
+  /*
+   * THREE LAYERS, JUDGED SEPARATELY.
+   *
+   * One score conflates failures with different fixes, and this run proved it:
+   * end-to-end sat at 42% on both depleted and fresh quota while structural
+   * moved 74% -> 84%, because most of the gap was a token-budget bug in dialogue
+   * generation rather than anything about memory.
+   */
+  const truthLayer = all.filter((r) => r.structuralCaptured).length;
+  const knowledgeLayer = all.filter((r) => !r.structuralLeak && !r.answerLeak).length;
+  const expressionBase = all.filter((r) => r.structuralCaptured).length;
+  const expressionLayer = all.filter((r) => r.structuralCaptured && r.answerCaptured).length;
+  console.log("\n" + "-".repeat(78));
+  console.log("THE THREE LAYERS");
+  console.log(
+    `  TRUTH       ${String(truthLayer)}/${String(all.length)} — events, projections and state are correct`,
+  );
+  console.log(
+    `  KNOWLEDGE   ${String(knowledgeLayer)}/${String(all.length)} — nobody knows what they were not told`,
+  );
+  console.log(
+    `  EXPRESSION  ${String(expressionLayer)}/${String(expressionBase)} — of what the character KNEW, ` +
+      `how much they actually said`,
+  );
+
   console.log("\n" + "#".repeat(78));
   console.log(
     `  structural (extraction+isolation, no generation)  ${String(structural)}/${String(total)} (${((structural / total) * 100).toFixed(0)}%)`,
