@@ -64,7 +64,8 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T21 | **The production extraction pool is TWO models, both on Groq** | — | A second provider verified for `extract`, or an accepted, written concentration risk | ☐ |
 | V1-T22 | Facts a CHARACTER asserts about themselves are no longer extracted | T19 | A decision on whether generated text may become canon, then a separate call if yes | ☐ |
 | V1-T23 | Conversational context is gone from extraction | T19 | "Yes, I promise" — whose subject sits in the character's previous question — is captured, measured before it is shipped | ☐ |
-| V1-T24 | **The scheduler reads an UNDECLARED capability as "verified for everything"** | — | Absence means NOT verified, fail-closed — with an ADR, because it changes a frozen component and will exclude models elsewhere | ☐ **defect** |
+| V1-T24 | **The scheduler reads an UNDECLARED capability as "verified for everything"** | — | Absence means NOT verified, fail-closed, enforced in contract + scheduler + test | ☑ **ADR-031** |
+| V1-T25 | Contamination guard over every evaluation fixture | — | `pnpm check` fails if a test sentence shares >4 consecutive words with any prompt | ☑ |
 
 **Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
 written. If the loop does not feel alive, that is the ONLY signal ADR-028
@@ -166,6 +167,29 @@ preference) failing with no rejection reason. An hour of gate runs has drained
 the Groq buckets, and a benchmark contaminated by capacity is worse than no
 benchmark — it looks like a quality result. Nothing more gets measured until the
 buckets recover.
+
+### The guard found a SECOND contamination the moment it existed (V1-T25)
+
+`contamination.test.ts` checks every held-out fixture against every rendered
+extraction prompt, by longest shared run of consecutive words rather than exact
+match — a lightly reworded paste teaches the answer just as well. Threshold 4,
+measured rather than chosen: at 6 a doubly-reworded fixture slipped through, and
+at 4 every legitimate fixture still clears every prompt.
+
+On its first run it failed on a case nobody had noticed:
+
+    shootout F3 shared EIGHT consecutive words with extract-events.v1
+
+"I bought a coil of rope from Odell this morning" is, almost verbatim, the
+prompt's worked example for `acquired`. **F3 scored 4/4 on both models and that
+result is withdrawn.** The honest reading of the shootout is narrower than
+reported: of its five capture fixtures, two (F1, F3) were contaminated, F2
+(promise, clean) captured 4/4, and F4 and F5 captured 0/4. Extraction generalises
+to shapes with strong independent prompt coverage and not much further.
+
+The fixture moved rather than the prompt, because here the prompt example came
+first and the fixture was copied from it. The rule the guard now states: whichever
+one BORROWED gives way.
 
 ### What IS fixed, and verified independently of that mess
 

@@ -76,8 +76,20 @@ const FIXTURES: ReadonlyArray<{
   {
     id: "F3",
     shape: "acquisition",
-    player: "I bought a coil of rope from Odell this morning.",
-    reply: "Odell overcharges. You'll learn.",
+    /*
+     * CHANGED 2026-09-06, and the direction matters. The original was "I bought
+     * a coil of rope from Odell this morning", which shares EIGHT consecutive
+     * words with the v1 prompt's worked example for `acquired`. F3 scored 4/4
+     * on both models and that result is withdrawn — it measured recall of an
+     * example.
+     *
+     * The FIXTURE moved rather than the prompt, because here the prompt example
+     * came first and the fixture was copied from it. Where a prompt example is
+     * added that collides with an existing fixture, the prompt moves instead:
+     * the rule is that whichever one borrowed is the one that gives way.
+     */
+    player: "I traded my father's compass for a lantern at the market.",
+    reply: "A poor trade. Lanterns are common here.",
     expect: true,
   },
   {
