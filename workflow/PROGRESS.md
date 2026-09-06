@@ -45,6 +45,37 @@ read character lines too.
 
 ## Session log
 
+## 2026-09-06 — Memory Foundation v1 FROZEN
+
+Three Gauntlet repetitions, 57 probe observations, nothing changed between runs.
+
+    KNOWLEDGE   57/57   zero leaks
+    TRUTH       48/57   all misses at extraction, 3 probes, each 0/3
+    EXPRESSION  27/48   character knew it and did not say it
+
+ADR-028 freezes the architecture. P0 is closed; P1 is four bounded extraction
+gaps; P2 is context construction and generation, which is where the real
+unknowns now are.
+
+What this stretch actually found, in order: capacity was metered per credential
+when Groq meters per model (4x); a model that fails cheaply looks like a model
+with capacity; the vector query was being diluted by recent dialogue; four
+measurement bugs, each in the instrument written to check the previous one; a
+knowledge leak caused by one rule with two implementations; a second leak
+because isolation rested on the model picking an event type; dialogue was the
+only task class running with uncontrolled reasoning; and four live provider keys
+committed inside the redaction test.
+
+Six architecture investigations, and every one of them found a defect in the
+instrument or the implementation rather than the design. That is the argument
+for stopping.
+
+NEXT: the website. World creation, characters, chat, persistence. The next
+important discovery should come from someone entering a world, doing something
+at 2am, and returning two days later to find it remembered.
+
+
+
 ### 2026-09-04 — Phase 1 gate run: MARGINAL, and the instrument is the problem
 
 **Done** — P1-T02 ☑ · P1-T05 ☑ · P1-T07 ☑ · full gate runner built and run 7×.

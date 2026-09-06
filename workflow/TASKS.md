@@ -336,6 +336,45 @@ Detailed tasks are written when the phase is entered. Writing them now would be 
 
 ---
 
+## Memory Foundation v1 — FROZEN 2026-09-06 (ADR-028)
+
+Three buckets. The point of the split is that P0 is closed: a defect in P1 or P2
+is not a reason to reopen it.
+
+### P0 — frozen, do not redesign
+
+Immutable events · deterministic projections · knowledge boundary (fails closed)
+· relationship and ownership state · semantic index as a DERIVED, rebuildable
+layer · provider abstraction · capacity scheduler · extraction gate · the
+evaluation contract.
+
+Changing any of these requires a new ADR that states what is being given up, and
+evidence from a consumer session rather than a benchmark percentage.
+
+### P1 — bounded extraction coverage
+
+Real gaps, measured, and none of them architectural. Each extends the event
+vocabulary; none replaces the event model.
+
+| ID | Task | Evidence | Status |
+|---|---|---|---|
+| M1-T01 | **Mutual events** — "Ilse and I argue" has no actor, target or object | 0 of 3 proposals. The player IS involved, so this is a genuine ontology gap, not a fixture artefact. | ☐ |
+| M1-T02 | **Meeting at a place** — the durable detail is the location | Captured 1 of 3. No event type asks for a location. | ☐ |
+| M1-T03 | **Third-party events** — an exchange the player is not part of | 0 of 3 on "Bram sells the ring on to a factor from Wexley". Partly a fixture artefact: in the product this event comes from the world engine, not player text. Confirm that before extending extraction. | ☐ needs product context first |
+| M1-T04 | **Events from sources other than player text** | The event log should accept writes from the world engine and from character actions, not only from extraction. M1-T03 is probably a symptom of this being missing. | ☐ |
+
+### P2 — the next engineering layer, and where the real unknowns now are
+
+Expression sits at 56%: a character holds the correct fact and does not say it.
+That is context construction and generation, not memory, and it is measured by
+use rather than by another fixture.
+
+| ID | Task | Note |
+|---|---|---|
+| M2-T01 | Context construction — what to put in front of the character, and what to leave out | Intrusion and recall are coupled: isolation now fails closed, so a character with little to draw on uses whatever they have. Report them together. |
+| M2-T02 | Response generation — turning known facts into speech that sounds remembered rather than retrieved | |
+| M2-T03 | Consumer Memory Test — long sessions, natural questions, judged answers | The test the Gauntlet cannot be. Belongs after the product exists. |
+
 ## Launch checklist — rotate everything once, together
 
 Deferred here by decision on 2026-09-06 rather than done piecemeal. Nothing in

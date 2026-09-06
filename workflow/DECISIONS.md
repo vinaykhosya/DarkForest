@@ -828,6 +828,93 @@ threatens the general tier.
 
 ---
 
+### ADR-028 - Memory Foundation v1 is FROZEN
+**2026-09-06 . Accepted . Freezes ADR-021 through ADR-027**
+
+**The decision.** The canonical memory architecture is frozen for v1. From here,
+work improves the IMPLEMENTATION inside this architecture. Reopening the
+architecture requires evidence from a consumer test or production telemetry -
+not another synthetic benchmark imperfection.
+
+This is not a claim that the architecture is optimal. No such claim is
+available, and chasing one has no stopping condition. It is a claim that the
+next important discoveries will come from people using the product rather than
+from designing another backend.
+
+**The evidence.** Three repetitions of the Gauntlet, 57 probe observations,
+nothing changed between runs:
+
+  KNOWLEDGE   57/57   zero leaks in all three runs
+  TRUTH       48/57   every miss from 3 probes, each 0/3, all at EXTRACTION
+  EXPRESSION  27/48   of what a character KNEW, how much they said
+
+Sixteen of nineteen probes are structurally perfect across all three runs. Every
+structural miss is localised to one stage - not projection, not routing, not
+isolation. The event was never written.
+
+**What is frozen.**
+
+    raw turns
+        v
+    event extraction                (LLM proposes; it never decides truth)
+        v
+    immutable canonical events      (append-only, the record)
+        v
+    +-- deterministic projections   (ownership, commitments, questions,
+    |                                relations, persona, numerics, observations)
+    +-- knowledge boundary          (fails closed; nothing public by default)
+        v
+    query routing and resolution    (structure first)
+        v
+    derived semantic index          (rebuildable, never authoritative)
+        v
+    context construction
+        v
+    character generation
+
+The load-bearing rule underneath it: **the model proposes what happened; the
+backend decides what is true and who may know it.**
+
+**Known limitations, recorded rather than hidden.** These are v1 limitations,
+not open questions:
+
+  1. THIRD-PARTY EVENTS. An exchange where the player is neither actor, target
+     nor participant is not extracted. Measured 0 proposals in 3 attempts on
+     "Bram sells the ring on to a factor from Wexley". Partly an artefact of a
+     fixture that has the player narrating what they did not witness; in the
+     product such an event originates from the world engine, not player text.
+
+  2. MUTUAL EVENTS. "Ilse and I argue about something small" has no actor,
+     target or object, and the ontology has no shape for it. The player IS
+     involved, so this one is a genuine gap.
+
+  3. MEETING AT A PLACE. Captured 1 of 3. The durable detail is the location and
+     no event type asks for one.
+
+  4. EXPRESSION at 56%. A character holds the fact and does not say it,
+     inconsistently. This is generation and context construction, not memory.
+
+**One unexplained incident, not closed.** A single run leaked: a character
+described a cellar she was never told about, structurally rather than only in her
+reply. It did not recur in 57 subsequent observations and a focused probe could
+not reproduce it - 0 of 7 events reached the wrong character. Zero in 57 is
+strong evidence and not proof, and an intermittent failure that did not fire is
+not a fixed one. The gauntlet now persists the viewer's full recallable set on
+any leak, so the next occurrence is evidence rather than another investigation.
+
+**Trade-off.** Freezing with four named limitations means shipping something
+imperfect and knowing exactly how. The alternative was another architecture
+round, and the last six of those each found a real defect in the INSTRUMENT or
+the IMPLEMENTATION rather than the design - four measurement bugs, a token-budget
+bug, and three refuted hypotheses. That pattern is the argument for stopping.
+
+**What would reopen this.** A consumer session showing a failure the three layers
+cannot explain. Not a benchmark percentage.
+
+**Revisit.** After the first real worlds have been played.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
