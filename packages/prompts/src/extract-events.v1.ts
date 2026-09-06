@@ -132,12 +132,24 @@ export function renderExtractEventsPrompt(input: ExtractEventsInput): {
     `      "object":"movement in the cellar",`,
     `      "value":"the user heard something moving in the cellar",`,
     `      "knownBy":["the user"]}`,
-    `  "I can't swim. I never learned"`,
-    `     {"type":"preference_stated","actor":"the user","object":"swimming",`,
-    `      "value":"cannot swim, never learned"}`,
-    `  "I grew up in Ashford and left at fifteen"`,
+    /*
+     * DELIBERATELY NOT the sentences the probe and the acceptance gate use.
+     *
+     * The first version of these examples was "I can't swim, I never learned"
+     * and "I grew up in Ashford and left at fifteen" — which are, verbatim, the
+     * V0.1 gate fixture and probe case S04. The prompt contained the answers to
+     * the tests, so both numbers measured recall of an example rather than
+     * generalisation of a category, and the gate quietly stopped being a gate.
+     *
+     * Replaced with the same SHAPES in unrelated domains. The honest number is
+     * expected to be lower, and a lower honest number is the point.
+     */
+    `  "I can't ride. Horses have never liked me"`,
+    `     {"type":"preference_stated","actor":"the user","object":"riding",`,
+    `      "value":"cannot ride, horses have never liked them"}`,
+    `  "I came here from the mountains ten years ago"`,
     `     {"type":"preference_stated","actor":"the user","object":"where they`,
-    `      are from","value":"grew up in Ashford, left at fifteen"}`,
+    `      are from","value":"came from the mountains ten years ago"}`,
     `  "The north bridge collapsed in the storm"`,
     `     {"type":"world_event","actor":"the world","object":"the north bridge",`,
     `      "value":"the north bridge collapsed in the storm"}`,

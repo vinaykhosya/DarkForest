@@ -1,6 +1,7 @@
 import type {
   AIProvider,
   CharacterId,
+  MemoryId,
   EmbeddingProvider,
   ModelDescriptor,
   WorldId,
@@ -10,13 +11,14 @@ import {
   appendEvents,
   appendTurn,
   asUser,
+  inAudience,
   currentWorldDay,
   projectFor,
   recentTurns,
   type DbPool,
 } from "@darkforest/db";
 import { extractEvents, retrieve } from "@darkforest/memory";
-import { canRecall, openThreads, renderEventAsMemory } from "@darkforest/core";
+import { openThreads, renderEventAsMemory } from "@darkforest/core";
 import { ApiError } from "./envelope.js";
 
 /**
@@ -199,10 +201,45 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
    */
   const extraction = await extractEvents(deps.router, deps.anyModel, {
     worldId,
-    transcript: [
-      { speaker: PLAYER, content: req.message },
-      { speaker: prepared.who.name, content: reply },
-    ],
+    /*
+     * THE PLAYER'S TURN ONLY. The character's reply is deliberately excluded,
+     * and this is the fix for the V0.1 gate failing 1 run in 3.
+     *
+     * Measured, paired, same generated reply in both arms (`pnpm replynoise`):
+     *
+     *     A  the player's line alone          8/8
+     *     B  the player's line + that reply   4/8
+     *     lost only when the reply was present: 4
+     *     lost in both arms:                    0
+     *
+     * A sentence the character INVENTED was deleting a fact the person TYPED,
+     * half the time. Not a model — `pnpm shootout` showed gpt-oss-120b and
+     * gpt-oss-20b scoring identically, fixture for fixture. Not the prompt, not
+     * the temperature: extraction already runs at 0. The window was the whole
+     * of it, and the mechanism is mundane — the extra text reframes the
+     * exchange as advice-giving, so the model stops seeing a fact worth
+     * recording.
+     *
+     * The principle it settles is bigger than the bug: THE PLAYER'S WORDS ARE
+     * GROUND TRUTH, and generated text must never be able to erase them.
+     *
+     * COST, stated rather than buried. Two things are lost, both real:
+     *
+     *   Facts a CHARACTER asserts about themselves are no longer recorded.
+     *   That needs its own decision, not a free ride on this call, because
+     *   extracting canon from generated text is a confabulation channel — the
+     *   model inventing "I have lived here my whole life" and having it become
+     *   permanent world truth. V1-T22.
+     *
+     *   Conversational context is gone, so a player's "yes, I promise" whose
+     *   subject sits in the character's previous question extracts nothing.
+     *   V1-T23. Including PRIOR turns while still excluding the new reply may
+     *   fix that, but it is unmeasured, and adding an unmeasured variant to a
+     *   fix that is measured is how this gets muddled again.
+     *
+     * It also costs fewer tokens, which is not the reason but is not nothing.
+     */
+    transcript: [{ speaker: PLAYER, content: req.message }],
     knownEntities: [
       { ref: `character:${characterId}`, name: prepared.who.name },
       { ref: "narrator", name: PLAYER },
@@ -245,7 +282,8 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
       worldDay: prepared.worldDay,
     });
 
-    if (extraction === null || extraction.events.length === 0) return 0;
+    const written: Array<{ id: MemoryId; content: string }> = [];
+    if (extraction === null || extraction.events.length === 0) return written;
 
     /*
      * Events are attributed to the PLAYER's turn, not the reply's.
@@ -255,7 +293,7 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
      * what the player said. Attributing it to the reply would make a character
      * the source of the player's own commitments.
      */
-    const events = await appendEvents(
+    const storedEvents = await appendEvents(
       db,
       worldId,
       extraction.events,
@@ -278,7 +316,7 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
      * log — which is the property that lets the embedding model change.
      */
     const store = new PostgresMemoryStore(db);
-    for (const e of events) {
+    for (const { event: e, audience } of storedEvents) {
       // Rendered as a sentence, not as joined fields. This string goes into the
       // prompt under "WHAT YOU REMEMBER", so it is read by the model that has
       // to sound like it remembers.
@@ -295,26 +333,73 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
         visibility: "restricted",
       });
       /*
-       * The grant mirrors the event's STORED AUDIENCE, which is the authority.
+       * The grant mirrors the event's STORED AUDIENCE — the actual array that
+       * was written, not a recomputation of the rule.
        *
-       * The first version read `knownBy` instead — the field the extractor
-       * fills in — and so granted nothing whenever the model failed to name the
-       * listener, which is most of the time. The character held the event and
-       * could not retrieve the memory derived from it: two representations of
-       * one fact, disagreeing, which is the defect this codebase has now hit
-       * three times.
+       * Two earlier versions of this line were wrong in the same direction.
+       * The first read `knownBy`, the field the extractor fills in, and granted
+       * nothing whenever the model failed to name the listener. The second
+       * called `canRecall(e, name)`, which recomputes `audienceFor` and so
+       * cannot see the `present` names the backend unioned in — the event was
+       * written `audience=[the user, Elena]` and the check said no.
        *
-       * `canRecall` is the single implementation of "may this person recall
-       * this", so it is what decides.
+       * Both are the same mistake: deriving an answer that has already been
+       * decided and stored. `inAudience` reads what was written.
        */
-      if (canRecall(e, prepared.who.name)) {
+      if (inAudience({ event: e, audience }, prepared.who.name)) {
         await store.grantKnowledge(characterId, memory.id, "told", 1, e.worldDay);
       }
       // The player has no character row, so their own knowledge is carried by
       // the event log alone. Noted so the asymmetry does not read as an omission.
+      written.push({ id: memory.id, content });
     }
-    return events.length;
+    return written;
   });
+
+  /*
+   * ── 5. EMBED WHAT WAS JUST WRITTEN ────────────────────────────────────────
+   *
+   * Without this the vector path is dead. `setEmbedding` was never called, so
+   * every memory sat with no vector; `vectorSearch` skips those by design —
+   * "retrieval degrades, never fails" — and the whole burden fell on keyword
+   * overlap and recency.
+   *
+   * That is exactly the path that cannot work here. The stored memory reads
+   * "the user cannot swim, never learned" and the question a day later is
+   * "should we wade across the channel?" — not one content word in common.
+   * Bridging that is the entire reason the semantic index exists, and it was
+   * switched off. Extraction reached 9/10 while the gate sat at 5/10, and the
+   * gap was this.
+   *
+   * In its OWN transaction, after the write committed. Embedding is a network
+   * call, and holding a database connection open across one is the same mistake
+   * as wrapping the generation in a transaction — a handful of concurrent users
+   * exhaust the pool while everyone waits on someone else's HTTP.
+   *
+   * Failure here is survivable BY DESIGN and must stay that way: the memory
+   * exists without a vector, `pendingEmbeddings` already models exactly that
+   * state, and retrieval falls back to keyword and structural rather than
+   * erroring. A background re-embed job (V0.2) drains the backlog.
+   */
+  if (stored.length > 0) {
+    try {
+      const vectors = await deps.embedder.embed(stored.map((m) => m.content));
+      await asUser(deps.pool, req.userId, async (db) => {
+        const store = new PostgresMemoryStore(db);
+        for (const [i, m] of stored.entries()) {
+          const vector = vectors[i];
+          if (vector === undefined) continue;
+          await store.setEmbedding(m.id, vector, deps.embedder.id, deps.embedder.version);
+        }
+      });
+    } catch (e) {
+      process.stderr.write(
+        `  embedding failed for ${String(stored.length)} memories on turn ` +
+          `${String(prepared.turn.seq)}: ${e instanceof Error ? e.message : String(e)}
+`,
+      );
+    }
+  }
 
   return {
     reply,
@@ -322,6 +407,6 @@ export async function runTurn(deps: TurnDeps, req: TurnRequest): Promise<TurnRes
       content: m.memory.content,
       worldDay: m.memory.worldDay,
     })),
-    eventsExtracted: stored,
+    eventsExtracted: stored.length,
   };
 }

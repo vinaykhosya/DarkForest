@@ -132,8 +132,8 @@ async function main(): Promise<void> {
         report("events stored", events.length === 2, `${String(events.length)} events`);
         report(
           "event seq is per world",
-          events[0]?.seq === 0 && events[1]?.seq === 1,
-          `${String(events[0]?.seq)}, ${String(events[1]?.seq)}`,
+          events[0]?.event.seq === 0 && events[1]?.event.seq === 1,
+          `${String(events[0]?.event.seq)}, ${String(events[1]?.event.seq)}`,
         );
 
         // ── isolation, through SQL ─────────────────────────────────────────

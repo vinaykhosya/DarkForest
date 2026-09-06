@@ -110,6 +110,39 @@ export class OpenRouterProvider implements AIProvider {
       supportsTools: true,
       supportsStreaming: true,
       supportsStructuredOutput: true,
+      /*
+       * DECLARED, because an undeclared capability is currently read as "all of
+       * them" and that sent extraction here.
+       *
+       * The V0.1 gate log caught it live:
+       *
+       *   turn 0: 0 events; model=openrouter/free; rejected=unparseable
+       *   turn 2: 0 events; model=openrouter/free; rejected=schema
+       *
+       * These models had no `verifiedTaskClasses`, and the scheduler's gate is
+       * `verifiedTaskClasses !== undefined && !includes(taskClass)` — so a model
+       * that declares nothing passes every capability check. `extract` then went
+       * to a model nothing has ever measured for structured output, and it
+       * failed exactly as the Groq catalogue predicts qwen would.
+       *
+       * That is ADR-022's own failure in a new costume. The old form was "a
+       * constraint that lives only in a comment is not a constraint"; this is
+       * "a capability that is nobody has declared is assumed to be present".
+       *
+       * `supportsStructuredOutput: true` above is likewise an inherited claim
+       * rather than a measurement, and it is left alone deliberately: it
+       * describes the API's request shape, while THIS field describes measured
+       * competence, and conflating the two is how the confusion started.
+       *
+       * Prose only until measured. Restoring `extract` requires a dated
+       * measurement, not an argument (V1-T24).
+       */
+      verifiedTaskClasses: [
+        "dialogue",
+        "dialogue_reaction",
+        "narrate",
+        "summarize_chapter",
+      ] as const,
       costPerMTokIn: 0,
       costPerMTokOut: 0,
       isFree: true,

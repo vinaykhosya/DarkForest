@@ -59,8 +59,12 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☑ |
 | V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ◐ **6 of 9** |
 | V1-T18 | Consumer session log — play it as a user, not as its author | T17 | A written account of what felt alive and what felt mechanical | ☐ |
-| V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | The same sentence captured on ≥9 of 10 runs | ☐ **blocks the gate** |
-| V1-T20 | Re-verify `gpt-oss-20b` for the widened `preference_stated` (ADR-022) | T19 | A dated measurement, or the task class is removed from its `verifiedTaskClasses` | ☐ |
+| V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | A HELD-OUT sentence captured on ≥9 of 10 runs — never one that appears in the prompt | ◐ **1/10 uncontaminated** |
+| ~~V1-T20~~ | ~~Re-verify `gpt-oss-20b`~~ | — | **REFUTED 2026-09-06.** `pnpm shootout`: 120b and 20b score IDENTICALLY, fixture for fixture. 20b is not the weak link and its `verifiedTaskClasses` stands. No routing change. | ⊗ |
+| V1-T21 | **The production extraction pool is TWO models, both on Groq** | — | A second provider verified for `extract`, or an accepted, written concentration risk | ☐ |
+| V1-T22 | Facts a CHARACTER asserts about themselves are no longer extracted | T19 | A decision on whether generated text may become canon, then a separate call if yes | ☐ |
+| V1-T23 | Conversational context is gone from extraction | T19 | "Yes, I promise" — whose subject sits in the character's previous question — is captured, measured before it is shipped | ☐ |
+| V1-T24 | **The scheduler reads an UNDECLARED capability as "verified for everything"** | — | Absence means NOT verified, fail-closed — with an ADR, because it changes a frozen component and will exclude models elsewhere | ☐ **defect** |
 
 **Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
 written. If the loop does not feel alive, that is the ONLY signal ADR-028
@@ -84,6 +88,111 @@ downstream loss: `events (0) · memories (0) · grants (0)`. The extractor
 returned valid JSON with an empty array; nothing was rejected, nothing was
 dropped, the model simply declined to record the sentence. Both failures that
 logged a model were `gpt-oss-20b`; the passing runs include `gpt-oss-120b`.
+
+### What can legally extract, as computed by `eligibleModels` (V1-T21)
+
+Everything that may carry a real person's words AND is verified for `extract`:
+
+    openai/gpt-oss-120b   [groq]
+    openai/gpt-oss-20b    [groq]
+
+Excluded, and each for a stated reason rather than by omission: both qwen models
+and `openrouter/free` are not verified for `extract` (ADR-022 — competence is a
+capability, checked before capacity), and the NVIDIA models are development-only
+on contractual grounds (ADR-013) as well as unverified.
+
+**Two models, one provider, for the step the entire product depends on.** If
+Groq is down or rate-limited, nothing is remembered — the conversation still
+works, and the world quietly stops learning, which is the worst shape of failure
+because it looks like everything is fine. Verifying a second provider for
+`extract` is a bounded piece of work; accepting the risk is also a decision, but
+it should be a written one.
+
+### The model hypothesis is REFUTED (V1-T20, `pnpm shootout`)
+
+Both failures that logged a model were `gpt-oss-20b`, which was a correlation
+over two data points. Pinning each model — scheduler bypassed, so a result is
+attributable — and holding the input constant:
+
+                                        F1  F2  F3  F4  F5  N1
+        openai/gpt-oss-120b              4   4   4   0   0   0
+        openai/gpt-oss-20b               4   4   4   0   0   0
+
+        openai/gpt-oss-120b   capture 60%   noise 0/4
+        openai/gpt-oss-20b    capture 60%   noise 0/4
+
+**Identical, fixture for fixture.** No routing change, and no confidence
+cascade: there is no stronger extractor to escalate TO. `gpt-oss-20b` keeps its
+`extract` verification. Neither model emitted a single false positive on the
+noise control, so the extraction gate is not too loose either.
+
+Two things the shootout separates that the gate could not:
+
+  **F4 (condition) and F5 (identity) are 0/4 on BOTH.** Real remaining ontology
+  coverage, matching the self-description probe. Extends the M1 list; not a
+  reliability problem.
+
+  **F1 — the gate fixture — is 4/4 on BOTH.** Yet it fails ~1 run in 3 live. The
+  one thing the shootout holds constant that the product does not is the
+  character's reply: pinned here, generated at temperature 0.85 there. That is
+  now the only surviving hypothesis, and `pnpm replynoise` tests it paired.
+
+### I contaminated my own benchmark, and the honest number is 1/10
+
+Worth writing down in full, because it is the fifth measurement defect in this
+project and the first one I introduced while fixing another.
+
+When the ontology gap was found, the fix added two worked examples to the
+extraction prompt. They were, VERBATIM, the V0.1 gate fixture ("I can't swim. I
+never learned") and probe case S04 ("I grew up in Ashford and left at fifteen").
+The prompt contained the answers to the tests. Every number measured afterwards
+was recall of an example, not generalisation of a category:
+
+    with the fixture in the prompt        extraction 7-9 / 10
+    same code, examples changed to
+    unrelated domains (riding, mountains) extraction   1 / 10
+
+So the widening did NOT teach the category. It taught two sentences. The earlier
+claim that it took the probe from 2/10 to 8/10 is withdrawn: most of that was
+those two cases answering themselves.
+
+The current setup is the methodologically correct one — the prompt teaches with
+examples, and every test sentence is held out — and the honest number under it is
+**1 in 10**. That is the real state of first-mention extraction.
+
+**Next measurement must wait for the rate limiter.** The last probe run shows
+`[REROUTE] ... RATE_LIMITED` and a control that had been passing (C01, a plain
+preference) failing with no rejection reason. An hour of gate runs has drained
+the Groq buckets, and a benchmark contaminated by capacity is worse than no
+benchmark — it looks like a quality result. Nothing more gets measured until the
+buckets recover.
+
+### What IS fixed, and verified independently of that mess
+
+Three structural defects, each proven by a mechanism rather than by a score:
+
+  **The extraction window.** Paired, same generated reply in both arms
+  (`pnpm replynoise`): player's line alone 8/8, player's line + that reply 4/8,
+  lost only when the reply was present 4, lost in both 0. A sentence the
+  character invented was deleting a fact a person typed. The player's turn is
+  now the only extraction source.
+
+  **The vector path was dead.** `setEmbedding` was never called, so no stored
+  memory ever had a vector, and `vectorSearch` skipped all of them by design.
+  Retrieval was running on keyword overlap between "cannot swim, never learned"
+  and "should we wade across the channel?" — no shared content word. Memories are
+  now embedded after the write, in their own transaction.
+
+  **The grant recomputed an answer that was already stored.** Diagnosis panel:
+  `audience=[the user, Elena]`, memory stored and embedded, `knowledge grants
+  (0)`. The check called `canRecall`, which recomputes `audienceFor` and cannot
+  see the `present` names the backend unions in. `inAudience` now reads what was
+  written. **Result: retrieval became perfectly coupled to extraction — 7
+  extracted, 7 retrieved, in the same batch.**
+
+  **`openrouter/free` was extracting.** Live log: `rejected=unparseable`,
+  `rejected=schema`. It declared no `verifiedTaskClasses`, and the scheduler
+  reads absence as "verified for everything" (V1-T24). Now declared prose-only.
 
 Not tuned green, and the reasons are worth stating. Raising `aggressiveness`
 until this fixture passes optimises for one sentence. Retrying until the model

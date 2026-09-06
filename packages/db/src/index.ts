@@ -11,12 +11,14 @@ export { PostgresMemoryStore } from "./memory-store.js";
 export {
   appendEvents,
   appendTurn,
+  inAudience,
   currentWorldDay,
   projectFor,
   recallableEvents,
   recentTurns,
   type NewTurn,
   type Speaker,
+  type StoredEvent,
   type StoredTurn,
 } from "./world-repo.js";
 export { MIGRATIONS_DIR } from "./paths.js";

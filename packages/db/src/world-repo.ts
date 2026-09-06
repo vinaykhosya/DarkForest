@@ -57,6 +57,36 @@ export interface StoredTurn {
   worldDay: number;
 }
 
+/**
+ * An event as it was actually written, carrying the audience that was STORED.
+ *
+ * The stored audience is `audienceFor(event)` UNIONED with whoever the backend
+ * knew was present, so it cannot be recomputed from the event's own fields —
+ * and a caller that tries gets a different, narrower answer.
+ *
+ * That is not hypothetical. The V0.1 gate failed on exactly it: the event was
+ * written with `audience=[the user, Elena]`, the memory derived from it was
+ * stored and embedded, and the knowledge grant was skipped because the caller
+ * asked `canRecall(event, "Elena")` — which recomputes the rule and does not
+ * see `present`. Elena held the event and could not retrieve the memory.
+ *
+ * Returning the stored value makes the authority unambiguous and removes the
+ * temptation to recompute it. `audience` is deliberately NOT added to
+ * `WorldEvent` in contracts: it is a storage fact, not part of the frozen event
+ * shape, and every reader of it should know it came from the database.
+ */
+export interface StoredEvent {
+  event: WorldEvent;
+  /** Who may recall this, as written. The authority — never recompute it. */
+  audience: readonly string[];
+}
+
+/** Whether `who` may recall an event, per its STORED audience. */
+export function inAudience(stored: StoredEvent, who: string): boolean {
+  const target = who.trim().toLowerCase();
+  return stored.audience.some((n) => n.trim().toLowerCase() === target);
+}
+
 interface EventRow {
   id: string;
   world_id: string;
@@ -166,8 +196,8 @@ export async function appendEvents(
    * moment it means the latter, isolation is gone.
    */
   present: readonly string[] = [],
-): Promise<WorldEvent[]> {
-  const stored: WorldEvent[] = [];
+): Promise<StoredEvent[]> {
+  const stored: StoredEvent[] = [];
 
   for (const p of proposed) {
     const { rows: seqRows } = await db.query<{ next_event_seq: number }>(
@@ -247,7 +277,7 @@ export async function appendEvents(
     );
     const row = rows[0];
     if (row === undefined) throw new Error("event insert returned no row");
-    stored.push(toEvent(row));
+    stored.push({ event: toEvent(row), audience: finalAudience });
   }
 
   return stored;
