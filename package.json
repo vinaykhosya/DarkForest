@@ -36,6 +36,9 @@
     "gate": "tsx packages/evals/src/gate.ts",
     "embed:compare": "tsx packages/evals/src/embed-compare.ts",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:check": "tsx scripts/db-check.ts",
+    "db:rls": "tsx scripts/rls-check.ts",
+    "db:verify": "pnpm db:check && pnpm db:rls",
     "db:snapshot": "tsx scripts/snapshot.ts",
     "db:seed": "tsx scripts/seed.ts"
   },
@@ -51,6 +54,7 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "@darkforest/db": "workspace:*",
     "zod": "^3.24.1"
   },
   "pnpm": {

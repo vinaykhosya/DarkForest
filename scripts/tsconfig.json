@@ -8,5 +8,6 @@
     "types": ["node"],
     "composite": true
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  "references": [{ "path": "../packages/db" }]
 }

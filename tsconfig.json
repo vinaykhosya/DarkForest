@@ -9,6 +9,7 @@
     { "path": "./packages/ai" },
     { "path": "./packages/prompts" },
     { "path": "./packages/memory" },
+    { "path": "./packages/db" },
     { "path": "./packages/evals" },
     { "path": "./scripts" }
   ]
