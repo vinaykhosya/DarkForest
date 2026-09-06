@@ -66,8 +66,21 @@ interface GroqModelSpec {
    * Groq's opaque "Failed to validate JSON", not as a length error.
    */
   reasoning?: boolean;
-  /** Accepts reasoning_effort: low|medium|high. qwen accepts only none|default. */
-  supportsEffortLevels?: boolean;
+  /**
+   * Which reasoning_effort value this model accepts.
+   *
+   * "low"  — gpt-oss. Graded levels.
+   * "none" — qwen. It rejects the graded levels, and a boolean
+   *          `supportsEffortLevels` therefore meant "send nothing", which is
+   *          how qwen3.6 came to burn 537 of 550 tokens on a <think> block and
+   *          return no speech at all. Measured: with reasoning_effort=none the
+   *          same prompt answers in 15 tokens, in character.
+   *
+   * The boolean could only express "graded or nothing" and the truth is three
+   * states, so a model that needed a DIFFERENT value looked identical to one
+   * that needed none.
+   */
+  reasoningEffort?: "low" | "none";
   /**
    * Task classes MEASURED to work on this model, not the ones it advertises.
    * Omitted means unrestricted.
@@ -118,21 +131,24 @@ const MODELS: GroqModelSpec[] = [
     id: GPT_OSS_120B,
     tier: "standard",
     reasoning: true,
-    supportsEffortLevels: true,
+    reasoningEffort: "low",
     verifiedTaskClasses: STRUCTURED_VERIFIED,
   },
   {
     id: GPT_OSS_20B,
     tier: "fast",
     reasoning: true,
-    supportsEffortLevels: true,
+    reasoningEffort: "low",
     verifiedTaskClasses: STRUCTURED_VERIFIED,
   },
   // qwen models reject reasoning_effort levels and failed JSON-mode validation
   // in testing. That is now DECLARED rather than merely described, so the
   // scheduler excludes them from structured tasks instead of discovering it.
-  { id: QWEN_36, tier: "standard", reasoning: true, verifiedTaskClasses: PROSE_ONLY },
-  { id: QWEN_38, tier: "standard", reasoning: true, verifiedTaskClasses: PROSE_ONLY },
+  // qwen takes reasoning_effort "none" and rejects the graded levels. Sending
+  // nothing let qwen3.6 spend an entire budget on a <think> block; 15 tokens
+  // and an in-character answer with it set.
+  { id: QWEN_36, tier: "standard", reasoning: true, reasoningEffort: "none", verifiedTaskClasses: PROSE_ONLY },
+  { id: QWEN_38, tier: "standard", reasoning: true, reasoningEffort: "none", verifiedTaskClasses: PROSE_ONLY },
 ];
 
 /*
@@ -423,8 +439,8 @@ export class GroqProvider implements AIProvider {
      * deliberation. Removing the special case removes the hole rather than
      * adding `dialogue` to a list that will be incomplete again next time.
      */
-    if (spec?.supportsEffortLevels === true) {
-      body["reasoning_effort"] = "low";
+    if (spec?.reasoningEffort !== undefined) {
+      body["reasoning_effort"] = spec.reasoningEffort;
     }
 
     if (req.stopSequences && req.stopSequences.length > 0) {

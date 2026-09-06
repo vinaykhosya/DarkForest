@@ -17,6 +17,7 @@ export {
 } from "./providers/cloudflare-embeddings.js";
 export {
   GroqProvider,
+  stripReasoningTrace,
   GROQ_FREE_REQUEST_CEILING,
   type GroqConfig,
 } from "./providers/groq.js";
