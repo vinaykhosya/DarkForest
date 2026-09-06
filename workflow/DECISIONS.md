@@ -915,6 +915,63 @@ cannot explain. Not a benchmark percentage.
 
 ---
 
+### ADR-029 - A thin vertical slice, but never a thin architecture
+**2026-09-06 . Accepted . Reorders WORKFLOW Phases 2-9**
+
+**Context.** Phase 9 lists "Entry: Phase 8 gate passed", which reads as seven
+sequential engineering projects before a person can use anything. Today the
+repository has the AI provider layer and the memory engine, both frozen, and no
+persistence at all: every world tested so far has lived in
+`InMemoryMemoryStore` and evaporated when the process exited.
+
+The question the last week could not answer is not answerable by any benchmark:
+does a person create a world, leave, come back, and feel remembered? That needs
+a running product, and the shortest honest path to it is not Phases 2 through 8
+built to completion in order.
+
+**Decision.** Build a vertical slice — Postgres, auth, one world, one character,
+chat, persistence, and the return visit — deferring the world engine,
+relationship engine and multi-character orchestration until the loop is real.
+
+**THE CONSTRAINT THAT MAKES THIS SAFE.** Slice the PRODUCT, not the
+ARCHITECTURE. The schema is the frozen architecture from the first migration:
+
+    turns  ->  events  ->  projections  ->  memory index
+
+and NOT the shortcut that a one-character demo would tolerate:
+
+    chat_messages  ->  LLM  ->  a "memory" JSON blob
+
+The second is faster this week and unpickable later: it discards the event log,
+so state cannot be folded, knowledge cannot be bounded, and every property the
+gauntlet spent a week establishing is gone. A slice that skips FEATURES is
+recoverable. A slice that skips the architecture is a rewrite wearing a
+deadline.
+
+Concretely, V0.1 persists events with their audience even though one character
+cannot leak to anyone, and folds projections even though a single world barely
+needs them. Both look like overhead at one character and are the reason the
+tenth character costs nothing.
+
+**Order.**
+
+  V0.1  postgres, auth, one world, one character, chat, the return visit
+  V0.2  multiple characters, relationships, orchestration
+  V0.3  memory notebook, settings, export and deletion, mobile
+  V0.4  the real Phase 9 gate, real users, consumer telemetry
+
+**Trade-off.** Phases 6 to 8 land later than the workflow intends, so the world
+engine and relationship engine are exercised by real sessions rather than by
+their own gates first. Accepted: those gates measure subsystems, and the thing
+we most need measured is the whole loop with a person in it.
+
+**Revisit.** If V0.1 shows the loop working, resume the phase order for
+everything above it. If it shows the loop does not feel alive, that is the
+signal ADR-028 named as grounds to reopen the memory architecture - and the only
+signal that qualifies.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
