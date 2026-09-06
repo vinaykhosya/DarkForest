@@ -83,9 +83,12 @@ interface GroqModelSpec {
   reasoningEffort?: "low" | "none";
   /**
    * Task classes MEASURED to work on this model, not the ones it advertises.
-   * Omitted means unrestricted.
+   *
+   * REQUIRED. It used to be optional with "omitted means unrestricted", which
+   * is the exact reading that let an unmeasured model take memory extraction
+   * in production (ADR-031). An empty array is the way to say "nothing yet".
    */
-  verifiedTaskClasses?: readonly TaskClass[];
+  verifiedTaskClasses: readonly TaskClass[];
 }
 
 /**
@@ -271,9 +274,7 @@ export class GroqProvider implements AIProvider {
       isFree: true,
       rateLimit: { rpm: 30, rpd: 1000, tpm: 8000 },
       ...(spec.qualityScore === undefined ? {} : { qualityScore: spec.qualityScore }),
-      ...(spec.verifiedTaskClasses === undefined
-        ? {}
-        : { verifiedTaskClasses: spec.verifiedTaskClasses }),
+      verifiedTaskClasses: spec.verifiedTaskClasses,
     }));
   }
 

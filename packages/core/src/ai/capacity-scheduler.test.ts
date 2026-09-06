@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { poolsFor, type ModelDescriptor, type ModelPolicy } from "@darkforest/contracts";
+import {
+  poolsFor,
+  TaskClassSchema,
+  type ModelDescriptor,
+  type ModelPolicy,
+  type TaskClass,
+} from "@darkforest/contracts";
 import { createCredentialState, recordSuccess, recordRejected } from "./credential-pool.js";
 import { overview, schedule, type CapacityBucket } from "./capacity-scheduler.js";
 
@@ -42,6 +48,9 @@ function model(
     costPerMTokOut: 0,
     isFree: true,
     qualityScore: 7,
+    // Declared, because absence now means NOT verified (ADR-031). Tests that
+    // exercise the capability gate override this.
+    verifiedTaskClasses: TaskClassSchema.options,
     ...over,
   };
 }
@@ -341,12 +350,57 @@ describe("schedule — measured competence gates capacity (ADR-022)", () => {
     expect(schedule([prose], { ...intent, taskClass: "extract" }, T0).bucket).toBeNull();
   });
 
-  it("leaves models that declare nothing unrestricted", () => {
-    // Absence of a measurement is not evidence of incompetence; it only means
-    // we have not checked. Restricting on absence would silently disable every
-    // provider we have not yet probed.
-    const unknown = bucket("openrouter", "unmeasured", 1);
-    expect(schedule([unknown], { ...intent, taskClass: "extract" }, T0).bucket).not.toBeNull();
+  /*
+   * REVERSED 2026-09-06, and left here rather than deleted so the reversal is
+   * visible. ADR-031.
+   *
+   * This test used to assert the opposite — "leaves models that declare nothing
+   * unrestricted" — arguing that absence of a measurement is not evidence of
+   * incompetence and that restricting on absence would disable every unprobed
+   * provider. That reasoning is coherent and it was wrong, because it optimises
+   * for availability in a gate whose entire purpose is safety.
+   *
+   * What it cost, from the V0.1 gate log:
+   *
+   *     turn 0: 0 events; model=openrouter/free; rejected=unparseable
+   *     turn 2: 0 events; model=openrouter/free; rejected=schema
+   *
+   * `openrouter/free` declared nothing, so it passed this gate and took memory
+   * extraction — the step the product depends on — having never been measured
+   * for structured output. The consequence of the old rule was not "we get to
+   * use an unproven model", it was "the world silently stops learning".
+   *
+   * Disabling an unprobed provider is the CORRECT outcome. The fix for it is a
+   * measurement, which is cheap and bounded; the fix for a corrupted world is
+   * not.
+   */
+  it("refuses a model that declares nothing — absence is NOT verification", () => {
+    const undeclared = bucket("openrouter", "unmeasured", 1, PRODUCTION, {
+      verifiedTaskClasses: [],
+    });
+    const decision = schedule([undeclared], { ...intent, taskClass: "extract" }, T0);
+    expect(decision.bucket).toBeNull();
+    expect(decision.rejected[0]?.reason).toBe("not_verified_for_task");
+  });
+
+  it("refuses even when the field is missing entirely, as untyped config can be", () => {
+    // The contract now requires the field, so this cannot arise from typed code
+    // — but a descriptor built from configuration can still omit it, and the
+    // direction it fails in is the whole point of the gate.
+    const fromConfig = bucket("openrouter", "from-config", 1);
+    const model = fromConfig.model as { verifiedTaskClasses?: readonly TaskClass[] };
+    delete model.verifiedTaskClasses;
+
+    const decision = schedule([fromConfig], { ...intent, taskClass: "extract" }, T0);
+    expect(decision.bucket).toBeNull();
+    expect(decision.rejected[0]?.reason).toBe("not_verified_for_task");
+  });
+
+  it("a declared model is still selected, so the gate is not simply closed", () => {
+    const declared = bucket("groq", "measured", 1, PRODUCTION, {
+      verifiedTaskClasses: ["extract"],
+    });
+    expect(schedule([declared], { ...intent, taskClass: "extract" }, T0).bucket).not.toBeNull();
   });
 
   it("ignores the task class entirely when the caller does not name one", () => {

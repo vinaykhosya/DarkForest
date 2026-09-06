@@ -2,6 +2,7 @@ import {
   AIError,
   poolsFor,
   TASK_TIER,
+  TaskClassSchema,
   type AIProvider,
   type GenerateRequest,
   type GenerateResponse,
@@ -63,6 +64,9 @@ export interface MockConfig {
  * The mock's own policy. Honest rather than convenient: nothing leaves the
  * process, so it genuinely trains on nothing and retains nothing.
  */
+/** Every task class the system defines, read from the schema so it cannot drift. */
+const ALL_TASK_CLASSES: readonly TaskClass[] = TaskClassSchema.options;
+
 const MOCK_POLICY: ModelPolicy = {
   eligibility: "production",
   trainsOnInput: false,
@@ -126,6 +130,13 @@ export class MockProvider implements AIProvider {
       costPerMTokOut: 0,
       isFree: true,
       qualityScore: tier === "deep" ? 9 : tier === "standard" ? 8 : 7,
+      /*
+       * Every task class, and for once that is a statement of fact rather than
+       * an unverified claim: this provider SIMULATES the task classes, so its
+       * competence at them is definitional. A real model earns this list one
+       * dated measurement at a time (ADR-022, ADR-031).
+       */
+      verifiedTaskClasses: ALL_TASK_CLASSES,
     }));
   }
 

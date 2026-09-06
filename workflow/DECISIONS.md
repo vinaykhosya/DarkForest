@@ -1018,6 +1018,63 @@ load-bearing.
 
 ---
 
+### ADR-031 - An undeclared capability is ABSENT, not assumed
+**2026-09-06 . Accepted . Amends ADR-022 . Changes a component frozen by ADR-028**
+
+**Context.** ADR-028 froze the capacity scheduler, and requires that any change
+to it come with "a new ADR that states what is being given up, and evidence from
+a consumer session rather than a benchmark percentage". This has both.
+
+The evidence is the V0.1 acceptance run, in production configuration:
+
+    turn 0: 0 events; model=openrouter/free; rejected=unparseable
+    turn 2: 0 events; model=openrouter/free; rejected=schema
+
+Memory extraction - the step the entire product depends on - was routed to a
+model nothing had ever measured for structured output, and it failed exactly as
+an unmeasured model may. The cause was one clause in the capability gate:
+
+    intent.taskClass !== undefined &&
+    m.verifiedTaskClasses !== undefined &&        // <- the defect
+    !m.verifiedTaskClasses.includes(intent.taskClass)
+
+A model that declared NOTHING skipped the gate and was treated as verified for
+everything. An existing test asserted this as intended behaviour, reasoning that
+"absence of a measurement is not evidence of incompetence" and that restricting
+on absence would disable every unprobed provider.
+
+**Decision.** Absence is NOT verification. The gate fails closed, and
+`verifiedTaskClasses` becomes REQUIRED on `ModelDescriptor` so that a new model
+does not compile until its author states what it has been measured to do. An
+empty array is the honest way to say "nothing yet", and it routes nowhere.
+
+**Why the old reasoning was wrong.** It is coherent and it optimises for the
+wrong thing. The gate exists for safety, and the consequence of admitting an
+unproven model was never "we get to use it" - it was that the conversation kept
+working while the world silently stopped learning. That is the worst failure
+shape available: nothing looks broken.
+
+This is ADR-022's own lesson in a second costume. The first was "a constraint
+that lives only in a comment is not a constraint". This one is "a capability
+nobody declared is assumed to be present". Optionality was the entire mechanism,
+so the type no longer offers it.
+
+**What is given up.** An unprobed provider is now unroutable rather than
+optimistically available, so adding one takes a measurement before it can carry
+traffic. Accepted, and cheap: the measurement is bounded work, and the failure it
+prevents corrupts a user's world rather than merely wasting a call. Concretely,
+`openrouter/free` is now prose-only until measured, which leaves the production
+extraction pool at two models on a single provider - a real concentration risk,
+tracked as V1-T21 rather than papered over by admitting an unmeasured model.
+
+**Enforcement.** Three layers, because a rule with one is a rule with none: the
+contract requires the field, the scheduler rejects absence at runtime for
+descriptors built from configuration, and the reversed test asserts both. The
+test that encoded the old behaviour is REVERSED IN PLACE with its original
+reasoning preserved, so the reversal is visible to whoever reads it next.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)

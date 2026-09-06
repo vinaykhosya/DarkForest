@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelDescriptor } from "@darkforest/contracts";
+import { TaskClassSchema, type ModelDescriptor } from "@darkforest/contracts";
 import { buildCapacityBuckets } from "./capacity.js";
 import { CredentialRegistry } from "./credentials.js";
 import { GROQ_DIALOGUE_MODELS } from "./registry/models.js";
@@ -28,6 +28,7 @@ function model(id: string): ModelDescriptor {
     maxOutput: 1024,
     supportsTools: true,
     supportsStreaming: true,
+    verifiedTaskClasses: TaskClassSchema.options,
     supportsStructuredOutput: true,
     costPerMTokIn: 0,
     costPerMTokOut: 0,

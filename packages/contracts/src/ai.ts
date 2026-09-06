@@ -234,8 +234,25 @@ export interface ModelDescriptor {
    * The scheduler settles capability BEFORE capacity precisely so that a model
    * which cannot do the job never competes for it on the strength of having
    * spare quota. See ADR-022.
+   *
+   * REQUIRED, and that is the fix for a real defect (ADR-031). It used to be
+   * optional, and the scheduler's gate read
+   *
+   *     verifiedTaskClasses !== undefined && !includes(taskClass)
+   *
+   * so a model that declared NOTHING passed every capability check. In the V0.1
+   * gate that sent memory extraction to `openrouter/free`, which nothing had
+   * ever measured for structured output, and it returned `unparseable` and
+   * `schema` failures in production.
+   *
+   * That is ADR-022's own lesson in a new costume. The first form was "a
+   * constraint that lives only in a comment is not a constraint". This one is
+   * "a capability nobody declared is assumed to be present". Optionality was
+   * the whole mechanism, so the type no longer offers it: a new model does not
+   * compile until its author says what it has been measured to do. An empty
+   * array is a legitimate answer — it means "nothing yet" and routes nowhere.
    */
-  verifiedTaskClasses?: readonly TaskClass[];
+  verifiedTaskClasses: readonly TaskClass[];
 }
 
 /**

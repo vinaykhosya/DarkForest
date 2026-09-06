@@ -79,6 +79,13 @@ function devModel(id: string, tier: ModelDescriptor["tier"]): ModelDescriptor {
     supportsTools: true,
     supportsStreaming: false,
     supportsStructuredOutput: true,
+    /*
+     * Dev-only models carry synthetic development workload, so the smoke test
+     * declares the classes it actually drives them with. Not a measurement
+     * claim about NVIDIA or Gemini — this fixture exists for capacity
+     * accounting, and the pool guard already stops these reaching a real user.
+     */
+    verifiedTaskClasses: ["dialogue", "extract"],
     costPerMTokIn: 0,
     costPerMTokOut: 0,
     isFree: true,

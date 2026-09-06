@@ -56,8 +56,10 @@ export interface SchedulingIntent {
   /** Restrict to these tiers, in order of preference. Empty = any tier. */
   tiers?: readonly ModelDescriptor["tier"][];
   /**
-   * The task being scheduled. Models that declare `verifiedTaskClasses` without
-   * this one are rejected as INCAPABLE, before any capacity comparison.
+   * The task being scheduled. A model is rejected as INCAPABLE, before any
+   * capacity comparison, unless it has been MEASURED for this task class and
+   * says so. Silence is not consent: an undeclared capability is absent
+   * (ADR-031).
    */
   taskClass?: TaskClass;
 }
@@ -143,11 +145,26 @@ function capabilityRejection(
    * Scoring cannot fix that, because the feedback loop runs the wrong way. A
    * model that cannot do the job must be excluded from the comparison, not
    * ranked lower within it.
+   *
+   * AND IT FAILS CLOSED. An absent or empty declaration means NOT VERIFIED —
+   * never "probably fine". ADR-031.
+   *
+   * The previous form also required `verifiedTaskClasses !== undefined`, so a
+   * model that declared nothing skipped this gate entirely and was treated as
+   * verified for everything. The V0.1 gate log caught it in production:
+   *
+   *     turn 0: 0 events; model=openrouter/free; rejected=unparseable
+   *     turn 2: 0 events; model=openrouter/free; rejected=schema
+   *
+   * Memory extraction — the step the whole product depends on — went to a model
+   * nothing had ever measured for structured output. The type now requires the
+   * field, so this branch is unreachable from typed code; it stays because a
+   * descriptor can arrive from configuration, and the direction it fails in is
+   * the entire point.
    */
   if (
     intent.taskClass !== undefined &&
-    m.verifiedTaskClasses !== undefined &&
-    !m.verifiedTaskClasses.includes(intent.taskClass)
+    !(m.verifiedTaskClasses as readonly TaskClass[] | undefined)?.includes(intent.taskClass)
   ) {
     return {
       bucketId: bucket.id,

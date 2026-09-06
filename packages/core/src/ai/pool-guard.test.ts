@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { poolsFor, type ModelDescriptor, type ModelPolicy } from "@darkforest/contracts";
+import {
+  poolsFor,
+  TaskClassSchema,
+  type ModelDescriptor,
+  type ModelPolicy,
+} from "@darkforest/contracts";
 import { checkPoolEligibility, eligibleModels, poolRequiresDisclosure } from "./pool-guard.js";
 
 /**
@@ -48,6 +53,7 @@ function model(id: string, policy: ModelPolicy, qualityScore?: number): ModelDes
     supportsTools: true,
     supportsStreaming: true,
     supportsStructuredOutput: true,
+    verifiedTaskClasses: TaskClassSchema.options,
     costPerMTokIn: 0,
     costPerMTokOut: 0,
     isFree: true,

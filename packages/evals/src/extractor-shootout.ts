@@ -172,7 +172,9 @@ async function main(): Promise<void> {
         excluded.push(`${m.id} — not eligible for real user content`);
         continue;
       }
-      if (!m.verifiedTaskClasses?.includes("extract")) {
+      // No optional chain: the field is required now (ADR-031), and an empty
+      // array is the honest "not measured yet".
+      if (!m.verifiedTaskClasses.includes("extract")) {
         excluded.push(`${m.id} — not verified for 'extract' (ADR-022)`);
         continue;
       }
