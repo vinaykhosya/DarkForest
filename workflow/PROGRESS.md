@@ -45,6 +45,39 @@ read character lines too.
 
 ## Session log
 
+## 2026-09-06 (later) — final gate: zero leaks, expression 81%
+
+Three repetitions, nothing changed between them, on the post-fix code.
+
+    KNOWLEDGE   57/57   the Elena leak is GONE
+    TRUTH       48/57   84%
+    EXPRESSION  39/48   81%, from 27/48 before the reasoning fix
+
+A-isolation-elena is 3/3 with 0 leaks, having leaked in two of the four earlier
+runs. Cause: the extractor wrote knownBy=["the user","Elena"] on a perception
+Elena was never present for; the audience rule obeyed. Fixed by ignoring
+model-supplied audience on `observed` entirely.
+
+THE FIX CHARGED FOR ITSELF and the data shows where. Two probes now report
+`isolation` in their lost-at column — A-state-ring 0/3, B-temporal 1/3 — because
+narrowing audiences means a fact that used to reach a viewer sometimes does not.
+That was the stated trade, and it is visible rather than theoretical.
+
+The verdict line still reads BELOW BAR on end-to-end at 68%. That threshold
+predates the three-layer split and conflates memory with generation. Left
+untouched: moving a bar to agree with a result is how a gate stops meaning
+anything.
+
+Every ADR-028 freeze criterion is now met, including the single item recorded as
+open at the time of freezing.
+
+Raw run JSON is gitignored, so these numbers live here and in commit messages.
+
+NEXT: Expression Suite v1 per category, then Postgres and the V0.1 vertical
+slice (ADR-029).
+
+
+
 ## 2026-09-06 — Memory Foundation v1 FROZEN
 
 Three Gauntlet repetitions, 57 probe observations, nothing changed between runs.
