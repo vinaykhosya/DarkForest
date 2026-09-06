@@ -25,14 +25,12 @@ import {
   CredentialRegistry,
   GroqProvider,
   OpenRouterProvider,
-} from "@darkforest/ai";
-import { AIError } from "@darkforest/contracts";
-import type { EmbeddingProvider, WorldState } from "@darkforest/contracts";
-import {
   SchedulerRouter,
   type ProviderUsageMetrics,
   type RoutingAttempt,
-} from "./scheduler-router.js";
+} from "@darkforest/ai";
+import { AIError } from "@darkforest/contracts";
+import type { EmbeddingProvider, WorldState } from "@darkforest/contracts";
 import { COMPACT_PROFILE } from "@darkforest/core";
 import { InMemoryMemoryStore, extractMemories, retrieve, __resetMemoryIds } from "@darkforest/memory";
 import type { FunnelStage } from "@darkforest/memory";
@@ -476,6 +474,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouterScheduled },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   const reps = Number(process.env["SUITE1_REPS"] ?? "3");

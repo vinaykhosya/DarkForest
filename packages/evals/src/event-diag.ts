@@ -18,7 +18,7 @@
  */
 
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
+import { CredentialRegistry, GroqProvider, OpenRouterProvider, SchedulerRouter } from "@darkforest/ai";
 import type { WorldEvent } from "@darkforest/contracts";
 import { project } from "@darkforest/core";
 import { extractEvents, type ExtractionOutcomeKind } from "@darkforest/memory";
@@ -28,7 +28,6 @@ import {
   factCaptureRate,
   type AttemptOutcome,
 } from "./contract/evaluation-contract.js";
-import { SchedulerRouter } from "./scheduler-router.js";
 import { SUITE1 } from "./worlds/suite1.js";
 
 function loadEnv(): Record<string, string> {
@@ -92,6 +91,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   console.log("\n" + "=".repeat(74));

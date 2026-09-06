@@ -89,6 +89,38 @@ export interface SchedulerRouterConfig {
   /** Max buckets to try for one request before giving up. */
   maxAttempts?: number;
   sleep: (ms: number) => Promise<void>;
+
+  /**
+   * WHOSE CONTENT THIS ROUTER CARRIES. There is no default, deliberately.
+   *
+   * These three values were hardcoded to `development` / `local` /
+   * `isSyntheticContent: true` when this class lived in the eval harness, where
+   * all three were true: benchmark fixtures are synthetic and nobody's private
+   * roleplay was at stake.
+   *
+   * The moment the product uses this router, all three are FALSE, and every one
+   * of them gates something that matters. `isSyntheticContent` is what keeps
+   * real user text away from providers whose terms let them train on it —
+   * Gemini and NVIDIA NIM both warn against submitting personal data (ADR-013),
+   * and Groq's agreement is why it can carry real content at all (ADR-009).
+   *
+   * Left as a default, a caller who forgot would silently ship user
+   * conversations to a development-only provider. So it is required, and the
+   * eval harness now states its own answer rather than inheriting it.
+   */
+  content: {
+    /**
+     * The inference pool (ADR-014). `development` admits providers that may
+     * train on what they are sent; `standard` and `private` do not.
+     */
+    pool: "standard" | "private" | "development";
+    environment: "local" | "staging" | "production";
+    /**
+     * True ONLY for fixtures and benchmarks. Anything a person typed is false,
+     * including a test account's messages.
+     */
+    isSyntheticContent: boolean;
+  };
 }
 
 function reasonFor(e: unknown): FallbackReason {
@@ -161,9 +193,9 @@ export class SchedulerRouter implements AIProvider {
       const decision = schedule(
         all,
         {
-          pool: "development",
-          environment: "local",
-          isSyntheticContent: true,
+          pool: this.config.content.pool,
+          environment: this.config.content.environment,
+          isSyntheticContent: this.config.content.isSyntheticContent,
           estimatedTokens,
           needsStructuredOutput: taskClass === "extract",
           // Capability before capacity: a model not verified for this task is

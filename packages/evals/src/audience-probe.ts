@@ -15,10 +15,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
+import { CredentialRegistry, GroqProvider, OpenRouterProvider, SchedulerRouter } from "@darkforest/ai";
 import { audienceFor, canRecall } from "@darkforest/core";
 import { extractEvents } from "@darkforest/memory";
-import { SchedulerRouter } from "./scheduler-router.js";
 import { GAUNTLET_WORLDS } from "./worlds/gauntlet.js";
 
 function loadEnv(): Record<string, string> {
@@ -64,6 +63,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   const world = GAUNTLET_WORLDS[0]!;

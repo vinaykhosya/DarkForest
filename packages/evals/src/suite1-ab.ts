@@ -23,8 +23,7 @@ import {
   CloudflareEmbeddingProvider,
   CredentialRegistry,
   GroqProvider,
-  OpenRouterProvider,
-} from "@darkforest/ai";
+  OpenRouterProvider, SchedulerRouter } from "@darkforest/ai";
 import { AIError, type WorldEvent, type WorldState } from "@darkforest/contracts";
 import { COMPACT_PROFILE, project, resolve, routeQuery } from "@darkforest/core";
 import {
@@ -35,7 +34,6 @@ import {
   __resetMemoryIds,
 } from "@darkforest/memory";
 import { renderDialoguePrompt } from "@darkforest/prompts";
-import { SchedulerRouter } from "./scheduler-router.js";
 import { SUITE1, type Suite1Fact } from "./worlds/suite1.js";
 
 function loadEnv(): Record<string, string> {
@@ -138,6 +136,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   console.log("\n" + "=".repeat(74));

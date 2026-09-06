@@ -20,8 +20,7 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
-import { SchedulerRouter } from "./scheduler-router.js";
+import { CredentialRegistry, GroqProvider, OpenRouterProvider, SchedulerRouter } from "@darkforest/ai";
 import { EXPRESSION_CASES, type ExpressionCase } from "./worlds/expression.js";
 
 function loadEnv(): Record<string, string> {
@@ -134,6 +133,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   /*

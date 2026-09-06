@@ -42,3 +42,16 @@ export {
 } from "./capacity.js";
 
 export * from "./registry/models.js";
+
+/**
+ * The router. docs/08 § 3 puts it here, alongside the adapters, because it is
+ * the piece that turns a TASK CLASS into a provider choice — and it was living
+ * in the eval harness, which meant the product could not use the scheduler that
+ * every benchmark was measured through.
+ */
+export {
+  SchedulerRouter,
+  type SchedulerRouterConfig,
+  type RoutingAttempt,
+  type ProviderUsageMetrics,
+} from "./router.js";

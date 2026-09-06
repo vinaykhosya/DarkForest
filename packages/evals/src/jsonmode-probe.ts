@@ -34,8 +34,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { CredentialRegistry, GroqProvider, OpenRouterProvider } from "@darkforest/ai";
-import { SchedulerRouter } from "./scheduler-router.js";
+import { CredentialRegistry, GroqProvider, OpenRouterProvider, SchedulerRouter } from "@darkforest/ai";
 import { EventExtractionSchema } from "@darkforest/contracts";
 import { renderExtractEventsPrompt } from "@darkforest/prompts";
 
@@ -102,6 +101,9 @@ async function main(): Promise<void> {
     providerIds: ["groq", "openrouter"],
     modelsByProvider: { openrouter: openrouter.models.filter((m) => m.tier === "fast") },
     sleep,
+    // Benchmark fixtures, on a development machine. All three are false in the
+    // product; see SchedulerRouterConfig.content.
+    content: { pool: "development", environment: "local", isSyntheticContent: true },
   });
 
   // 120b carried every failure in the diagnosis; 20b had none. Both are probed

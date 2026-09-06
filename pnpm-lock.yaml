@@ -49,6 +49,39 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
 
+  apps/api:
+    dependencies:
+      '@darkforest/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
+      '@darkforest/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@darkforest/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@darkforest/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@darkforest/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
+      '@darkforest/prompts':
+        specifier: workspace:*
+        version: link:../../packages/prompts
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.17(hono@4.13.7)
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.7
+      jose:
+        specifier: ^5.9.6
+        version: 5.10.0
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/ai:
     dependencies:
       '@darkforest/contracts':
@@ -497,6 +530,12 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@hono/node-server@1.19.17':
+    resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1025,6 +1064,10 @@ packages:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
 
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
+    engines: {node: '>=16.9.0'}
+
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
@@ -1077,6 +1120,9 @@ packages:
 
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
+
+  jose@5.10.0:
+    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
@@ -1694,6 +1740,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
+  '@hono/node-server@1.19.17(hono@4.13.7)':
+    dependencies:
+      hono: 4.13.7
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -2254,6 +2304,8 @@ snapshots:
 
   has-flag@4.0.0: {}
 
+  hono@4.13.7: {}
+
   html-escaper@2.0.2: {}
 
   ignore@5.3.2: {}
@@ -2303,6 +2355,8 @@ snapshots:
       '@isaacs/cliui': 8.0.2
     optionalDependencies:
       '@pkgjs/parseargs': 0.11.0
+
+  jose@5.10.0: {}
 
   js-yaml@4.3.2:
     dependencies:

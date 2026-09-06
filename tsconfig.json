@@ -1,5 +1,5 @@
 {
-  // Solution-style root config. Holds no sources of its own — it exists so that
+  // Solution-style root config. Holds no sources of its own â€” it exists so that
   // `tsc --build` walks every package in dependency order and so editors resolve
   // cross-package imports. Add a reference for each new workspace package.
   "files": [],
@@ -11,6 +11,7 @@
     { "path": "./packages/memory" },
     { "path": "./packages/db" },
     { "path": "./packages/evals" },
+    { "path": "./apps/api" },
     { "path": "./scripts" }
   ]
 }
