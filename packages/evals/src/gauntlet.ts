@@ -132,6 +132,15 @@ interface ProbeResult {
   answerLeak: boolean;
   /** A forbidden-in-answer term surfaced. Quality, never a boundary breach. */
   answerNoisy: boolean;
+  /** Present only on a leak or a structural miss. See the comment at the call site. */
+  knownEvents?: Array<{
+    type: string;
+    actor: string;
+    target: string | null;
+    value: string | null;
+    knownBy: readonly string[];
+    sourceTurn: number;
+  }>;
   /** Stage-by-stage trace. The first `false` is where the fact was lost. */
   layers: {
     extracted: boolean;
@@ -314,6 +323,26 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
           answerCaptured,
           answerLeak,
           answerNoisy,
+          /*
+           * The viewer's whole recallable set, saved only when something went
+           * wrong. Run B leaked and run A did not, on identical isolation code,
+           * and the focused probe could not reproduce it — 0 of 7 events reached
+           * the wrong character. Without the actual events there was nothing to
+           * examine, so the next occurrence is evidence rather than another
+           * round of guessing.
+           */
+          ...(structuralLeak || answerLeak || !structuralCaptured
+            ? {
+                knownEvents: known.map((e) => ({
+                  type: e.type,
+                  actor: e.actor,
+                  target: e.target,
+                  value: e.value ?? e.object,
+                  knownBy: e.knownBy,
+                  sourceTurn: e.sourceTurn,
+                })),
+              }
+            : {}),
           layers: {
             extracted: inAnyEvent,
             audience: inAudience,

@@ -27,6 +27,7 @@
     "selectivity": "tsx packages/evals/src/selectivity-ab.ts",
     "ladder": "tsx packages/evals/src/context-ladder.ts",
     "agency": "tsx packages/evals/src/agency-experiment.ts",
+    "audience:probe": "tsx packages/evals/src/audience-probe.ts",
     "gauntlet": "tsx packages/evals/src/gauntlet.ts",
     "extract:probe": "tsx packages/evals/src/extraction-probe.ts",
     "suite1": "tsx packages/evals/src/suite1.ts",
