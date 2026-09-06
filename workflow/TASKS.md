@@ -326,8 +326,8 @@ Detailed tasks are written when the phase is entered. Writing them now would be 
 | ID | Task | Why it is not scheduled | Status |
 |---|---|---|---|
 | P-NEW-01 | **Web search (Tavily)** — decide whether it belongs in the product at all | Credentials are stored, but web search is in **no specification**. It raises real questions before any code: (1) it sends user text to a third party whose terms we have not reviewed against [12](../docs/12-security.md) § 7 and ADR-014 — a search query derived from a private roleplay is still user content; (2) it is a new per-turn cost outside the compute-unit model in [14](../docs/14-billing-and-entitlements.md); (3) what is it *for*? Persistent fiction rarely needs live facts, so the use case has to be named before the feature can be justified under [01](../docs/01-principles-and-constraints.md) § Part D. Needs an ADR. | ☐ blocked on a product decision |
-| P-NEW-02 | Rotate the Supabase database password and service-role key | Both were transmitted in plaintext; the password also embeds a personal phone number. Not urgent while the project is empty, but must happen before Phase 2 writes anything real. | ☐ before P2-T01 |
-| P-NEW-08 | **Rotate four provider keys that were committed to git history** — Groq, OpenRouter, NVIDIA, Gemini | Found while preparing the first push. The `redactKeys` test used LIVE credentials to prove the redactor caught them, so four working keys sat in git objects — the exact leak that function exists to prevent, committed inside its own test. History has been rewritten and verified clean, and the repo had no remote, so exposure was local disk only. Rotate anyway: they were also pasted in plaintext during setup, and a key you have decided to trust after an incident is a key you will not think about again. | ☐ before P2-T01 |
+| P-NEW-02 | Rotate the Supabase database password and service-role key | Both were transmitted in plaintext; the password also embeds a personal phone number. **Deferred to the launch checklist by decision, 2026-09-06** — rotating piecemeal during development means doing it repeatedly, so every credential rotates once, together, before the product is exposed. Acceptable while the database is empty and the repo is private. | ☐ LAUNCH CHECKLIST |
+| P-NEW-08 | **Rotate four provider keys that were committed to git history** — Groq, OpenRouter, NVIDIA, Gemini | Found while preparing the first push. The `redactKeys` test used LIVE credentials to prove the redactor caught them, so four working keys sat in git objects — the exact leak that function exists to prevent, committed inside its own test. History has been rewritten and verified clean, and the repo had no remote, so exposure was local disk only. Rotate anyway: they were also pasted in plaintext during setup, and a key you have decided to trust after an incident is a key you will not think about again. **Deferred to the launch checklist by decision, 2026-09-06**, together with P-NEW-02 and the GitHub PAT. Bounded meanwhile: the keys are free-tier development credentials, the repo is private, history is purged, and the secret scan in `pnpm check` is now what prevents recurrence. | ☐ LAUNCH CHECKLIST |
 | P-NEW-03 | **Content tier as a routing dimension** (ADR-027, Phase A) — add `ContentTier` and per-tier eligibility to `ModelDescriptor`, left UNPOPULATED | The field exists so the router can carry the dimension; no model is marked mature-eligible until P-NEW-04 verifies it. Follows the pattern that `perModelLimits` and `verifiedTaskClasses` set: a capability is declared only once measured or read from terms. A model page saying "uncensored" is marketing copy, not a licence. | ☐ after Phase 1 gate |
 | P-NEW-04 | **Provider compliance matrix** (ADR-027, Phase B) — one dated row per model | Columns: commercial use, customer-facing use, adult content, structured output, retention, jurisdiction. Every cell verified against the provider's own terms with the date checked, because any of them can change without notice. No cell is filled by inference. This is the artefact that makes P-NEW-03's field safe to populate. | ☐ blocked on P-NEW-03 |
 | P-NEW-05 | **Mature-world prototype, private** (ADR-027, Phase C) — one fictional adult world, end to end | Measures what the general tier cannot tell us: continuity across a mature register, provider refusal behaviour mid-scene, moderation boundaries holding, latency and cost. Not exposed publicly. Blocked on the event architecture being settled — a prototype over an unproven foundation measures the foundation. | ☐ blocked on P1 gate + P-NEW-04 |
@@ -335,6 +335,19 @@ Detailed tasks are written when the phase is entered. Writing them now would be 
 | P-NEW-07 | **Self-hosted inference adapter** (ADR-027, Phase D) — behind the existing `AIProvider` interface | The endgame for provider independence: an owned endpoint is one more adapter, not a rewrite, because ADR-009's abstraction already forbids vendor SDKs outside `providers/**`. Only justified if P-NEW-05 shows demand and a suitably licensed model exists. Licence review is part of the task, not a footnote. | ☐ speculative, demand-gated |
 
 ---
+
+## Launch checklist — rotate everything once, together
+
+Deferred here by decision on 2026-09-06 rather than done piecemeal. Nothing in
+this section is safe to skip; it is batched, not dismissed.
+
+| ID | Task | Note |
+|---|---|---|
+| L-SEC-01 | Rotate the four provider keys purged from git history | Groq, OpenRouter, NVIDIA, Gemini (P-NEW-08) |
+| L-SEC-02 | Rotate the Supabase database password and service-role key | Password embeds a personal phone number (P-NEW-02) |
+| L-SEC-03 | Rotate the GitHub PAT | Sent in plaintext during setup |
+| L-SEC-04 | Re-run the secret scan against the full history before going public | `pnpm check` covers the working tree; verify history once more if the repo is ever made public |
+| L-SEC-05 | Move every credential out of `.env` into the deployment secret store | `.env` is a development convenience, not a production mechanism |
 
 ## Cross-cutting, continuous
 

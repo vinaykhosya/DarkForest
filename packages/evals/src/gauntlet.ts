@@ -49,7 +49,16 @@ function loadEnv(): Record<string, string> {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-const DELAY = 2800;
+/*
+ * 4500ms, not 2800.
+ *
+ * The paced-vs-contended experiment measured format failures at 29% with 1200ms
+ * spacing and 20% at 4000ms, and the fact-turn probe found ZERO pathological
+ * output when each call stood alone. This is the gate run, so it is paced past
+ * the point where load is a plausible explanation for anything it reports —
+ * a contaminated gate result is worse than a slow one.
+ */
+const DELAY = 4500;
 
 /** A stock in-world acknowledgement. Static, so the transcript never leaks new facts. */
 function ackFor(turn: string, world: GauntletWorld): { speaker: string; content: string } {
