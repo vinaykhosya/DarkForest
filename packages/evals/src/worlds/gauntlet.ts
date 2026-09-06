@@ -60,10 +60,21 @@ export interface GauntletProbe {
   /** At least one must appear in what comes back. */
   expect: readonly string[];
   /**
-   * None of these may appear. A leak here is worse than a miss: it means a
-   * character knows something nobody told them.
+   * ISOLATION constraint. These must not be in the viewer's knowledge set AT
+   * ALL, and a hit is a leak — a character knowing something nobody told them.
+   *
+   * Split from `forbidInAnswer` because one field meant two things and the
+   * conflation reported two false leaks. The player legitimately knows both what
+   * they saw and what they lied about; forbidding the lie STRUCTURALLY marked
+   * correct memory as a breach.
    */
-  forbid?: readonly string[];
+  forbidKnown?: readonly string[];
+  /**
+   * QUALITY constraint. These may legitimately be known but must not surface in
+   * the answer — a trivial detail crowding out the one that was asked for.
+   * Never a leak; a noisy answer is a bad answer, not a broken boundary.
+   */
+  forbidInAnswer?: readonly string[];
   /** Turn index to ask at. Always well after the events involved. */
   at: number;
   /** Plain-language note on what failure would mean for the product. */
@@ -163,7 +174,7 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
     question: "Who has that silver ring now?",
     expect: ["Wexley", "factor", "sold"],
     // Elena and Bram both held it earlier. Returning either is a stale answer.
-    forbid: [],
+    forbidInAnswer: [],
     at: 52,
     why: "An object that changed hands three times must resolve to its CURRENT holder, not the loudest memory of it.",
   },
@@ -198,7 +209,8 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
     question: "What do you know about the cellar under the Bell?",
     expect: [],
     // The whole point. Elena was never told and never went down there.
-    forbid: ["sealed door", "sealed", "behind the racks"],
+    // STRUCTURAL: Elena was never told. This must not be in her knowledge set.
+    forbidKnown: ["sealed door", "sealed", "behind the racks"],
     at: 51,
     why: "Elena was never told. If she knows, characters are one narrator wearing several names, and the product is fake.",
   },
@@ -209,7 +221,13 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
     askedOf: "the user",
     question: "Which way did I actually watch the caravan go?",
     expect: ["east"],
-    forbid: ["north"],
+    /*
+     * ANSWER-ONLY. The player saw the caravan go east and told Sera it went
+     * north, so BOTH are legitimately in their memory. Forbidding "north"
+     * structurally marked correct recall as a leak — the conflation this
+     * split fixes. What matters is that the answer gives the truth.
+     */
+    forbidInAnswer: ["north"],
     at: 48,
     why: "What the player WITNESSED must outrank what the player SAID. Confusing them makes the world unable to hold a lie.",
   },
@@ -277,7 +295,9 @@ const SALTMARSH_PROBES: readonly GauntletProbe[] = [
     askedOf: "the user",
     question: "What have I actually done since I arrived?",
     expect: ["ring", "ferry", "cellar", "caravan", "Tolven"],
-    forbid: ["boots", "gull", "candles"],
+    // ANSWER-ONLY. Mundane turns are correctly remembered; they must simply
+    // not crowd out the answer. Noise is a quality failure, not a breach.
+    forbidInAnswer: ["boots", "gull", "candles"],
     at: 58,
     why: "Half this world is mundane. If cleaning boots ranks alongside nearly drowning, memory has no sense of proportion.",
   },
@@ -372,7 +392,8 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
     question: "Did anything happen between me and Ilse while you were away?",
     expect: [],
     // Ronan was at his sister's. Nobody told him. This is the load-bearing test.
-    forbid: ["stayed with", "that night", "stayed the night", "slept"],
+    // STRUCTURAL: Ronan was away. The private event must not reach him.
+    forbidKnown: ["stayed with", "that night", "stayed the night", "slept"],
     at: 44,
     why: "A private adult event must stay private. A character volunteering it is the single most damaging failure this product can have.",
   },
@@ -443,7 +464,8 @@ const ASHFORD_PROBES: readonly GauntletProbe[] = [
     askedOf: "Marta",
     question: "What has actually mattered around here this winter?",
     expect: ["Ilse", "night", "brother", "argu"],
-    forbid: ["shutter", "kindling", "flue"],
+    // ANSWER-ONLY, same reason.
+    forbidInAnswer: ["shutter", "kindling", "flue"],
     at: 42,
     why: "Half of Ashford is chores. If fixing a shutter competes with a relationship changing, retrieval has no sense of weight.",
   },

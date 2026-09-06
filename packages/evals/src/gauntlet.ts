@@ -121,6 +121,8 @@ interface ProbeResult {
   answered: string;
   answerCaptured: boolean;
   answerLeak: boolean;
+  /** A forbidden-in-answer term surfaced. Quality, never a boundary breach. */
+  answerNoisy: boolean;
   knownEventCount: number;
 }
 
@@ -222,17 +224,35 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
           expect: probe.expect,
         };
         const structuralCaptured = probe.expect.length === 0 ? true : capturesFact(known, asFacts);
+
+        /*
+         * A LEAK is only ever a forbidKnown hit. `forbidInAnswer` marks a
+         * quality problem — a detail the viewer may legitimately know but that
+         * should not crowd out the answer.
+         *
+         * One field previously meant both, and it manufactured two false leaks:
+         * the player legitimately remembers both what they saw AND what they
+         * lied about, so forbidding the lie structurally flagged correct memory
+         * as a breach. A gate whose headline metric is "zero leaks" cannot
+         * afford to invent them.
+         */
         const structuralLeak =
-          (probe.forbid?.length ?? 0) > 0 &&
-          capturesFact(known, { ...asFacts, expect: probe.forbid ?? [] });
+          (probe.forbidKnown?.length ?? 0) > 0 &&
+          capturesFact(known, { ...asFacts, expect: probe.forbidKnown ?? [] });
 
         const lines = known.map(renderLine).filter((l) => l.trim().length > 0);
         const answer = await answerAsCharacter(router, world, probe, lines);
+        const lowerAnswer = answer.toLowerCase();
         const answerCaptured =
-          probe.expect.length === 0 ? true : probe.expect.some((t) => answer.toLowerCase().includes(t.toLowerCase()));
+          probe.expect.length === 0 ? true : probe.expect.some((t) => lowerAnswer.includes(t.toLowerCase()));
         const answerLeak =
-          (probe.forbid?.length ?? 0) > 0 &&
-          (probe.forbid ?? []).some((t) => answer.toLowerCase().includes(t.toLowerCase()));
+          (probe.forbidKnown?.length ?? 0) > 0 &&
+          (probe.forbidKnown ?? []).some((t) => lowerAnswer.includes(t.toLowerCase()));
+        // Not a leak. Recorded separately so noise is visible without inflating
+        // the number the freeze decision turns on.
+        const answerNoisy =
+          (probe.forbidInAnswer?.length ?? 0) > 0 &&
+          (probe.forbidInAnswer ?? []).some((t) => lowerAnswer.includes(t.toLowerCase()));
 
         results.push({
           probe,
@@ -242,6 +262,7 @@ async function runWorld(router: SchedulerRouter, world: GauntletWorld): Promise<
           answered: answer,
           answerCaptured,
           answerLeak,
+          answerNoisy,
           knownEventCount: known.length,
         });
       }
@@ -352,12 +373,27 @@ async function main(): Promise<void> {
   // ── the sharpest instrument: leaks ───────────────────────────────────────
   const leaks = all.filter((r) => r.structuralLeak || r.answerLeak);
   console.log("\n" + "-".repeat(78));
-  console.log(`KNOWLEDGE ISOLATION — ${String(leaks.length)} leak(s) of ${String(all.filter((r) => (r.probe.forbid?.length ?? 0) > 0).length)} guarded probes`);
+  console.log(`KNOWLEDGE ISOLATION — ${String(leaks.length)} leak(s) of ${String(all.filter((r) => (r.probe.forbidKnown?.length ?? 0) > 0).length)} guarded probes`);
   for (const l of leaks) {
     console.log(`  LEAK  ${l.probe.id}  ${l.probe.question}`);
     console.log(`        answered: ${l.answered.slice(0, 140)}`);
   }
   if (leaks.length === 0) console.log("  none — every guarded probe held.");
+
+  /*
+   * Noise is reported apart from leaks on purpose. The freeze turns on "zero
+   * knowledge leaks", so anything that is not a boundary breach must not be
+   * counted as one — otherwise the gate is measuring answer quality while
+   * claiming to measure security.
+   */
+  const noisy = all.filter((r) => r.answerNoisy);
+  console.log(
+    `
+ANSWER NOISE — ${String(noisy.length)} of ` +
+      `${String(all.filter((r) => (r.probe.forbidInAnswer?.length ?? 0) > 0).length)} checked ` +
+      `(legitimately known, but crowding out the answer — quality, not a breach)`,
+  );
+  for (const nz of noisy) console.log(`  noisy  ${nz.probe.id}  ${nz.probe.question}`);
 
   // ── verdict ──────────────────────────────────────────────────────────────
   const total = all.length;
