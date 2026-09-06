@@ -8,4 +8,15 @@ export {
 } from "./client.js";
 export { loadMigrations, migrate, type Migration, type MigrationResult } from "./migrate.js";
 export { PostgresMemoryStore } from "./memory-store.js";
+export {
+  appendEvents,
+  appendTurn,
+  currentWorldDay,
+  projectFor,
+  recallableEvents,
+  recentTurns,
+  type NewTurn,
+  type Speaker,
+  type StoredTurn,
+} from "./world-repo.js";
 export { MIGRATIONS_DIR } from "./paths.js";

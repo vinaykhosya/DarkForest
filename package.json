@@ -39,7 +39,8 @@
     "db:check": "tsx scripts/db-check.ts",
     "db:rls": "tsx scripts/rls-check.ts",
     "db:conformance": "tsx scripts/conformance.ts",
-    "db:verify": "pnpm db:check && pnpm db:rls && pnpm db:conformance",
+    "db:world": "tsx scripts/world-check.ts",
+    "db:verify": "pnpm db:check && pnpm db:rls && pnpm db:conformance && pnpm db:world",
     "db:snapshot": "tsx scripts/snapshot.ts",
     "db:seed": "tsx scripts/seed.ts"
   },
