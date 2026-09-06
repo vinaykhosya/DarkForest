@@ -341,6 +341,21 @@ async function generateAndStore(
     // the extractor's own output internally ordered.
     nextSeq: 0,
     worldDay: prepared.worldDay,
+    /*
+     * v1.2, chosen EXPLICITLY rather than by moving the default.
+     *
+     * Measured on 28 held-out sentences, both arms interleaved against one
+     * pinned model (`pnpm extract:study`):
+     *
+     *     v1.1   capture 13/19  68%   false positives 1/5
+     *     v1.2   capture 19/19 100%   false positives 0/6
+     *
+     * The default stays v1 so every historical benchmark keeps meaning what it
+     * meant when it was run — moving it would silently re-baseline the gauntlet
+     * and Suite 1. The product's choice is stated here, where it can be found by
+     * grep rather than inferred from a default.
+     */
+    promptVariant: "v1.2",
   }).catch((e: unknown) => {
     process.stderr.write(
       `  extraction threw for turn ${String(prepared.turn.seq)}: ` +

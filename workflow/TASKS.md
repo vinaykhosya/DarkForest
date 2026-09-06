@@ -57,15 +57,17 @@ hard safety line, memory notebook, mobile. Each is a later V, not a cut.
 | V1-T14 | `POST /worlds`, `POST /characters` | T13 | A stranger creates a world and Elena, owned by them | ☑ |
 | V1-T15 | `POST /turns` — the whole loop, end to end | T11, T14 | Reply generated, turn stored, events extracted, memory indexed | ☑ |
 | V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☑ |
-| V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ◐ **6 of 9** |
+| V1-T17 | **The return visit** (`pnpm v01`) | T16 | Close the browser, come back, Elena remembers unprompted | ☑ **9 of 10** |
 | V1-T18 | Consumer session log — play it as a user, not as its author | T17 | A written account of what felt alive and what felt mechanical | ☐ |
-| V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | A HELD-OUT sentence captured on ≥9 of 10 runs — never one that appears in the prompt | ◐ **1/10 uncontaminated** |
+| V1-T19 | **Extraction reliability on FIRST MENTION** — the weakest link | T17 | A HELD-OUT sentence captured on ≥9 of 10 runs — never one that appears in the prompt | ☑ **10 of 10** |
 | ~~V1-T20~~ | ~~Re-verify `gpt-oss-20b`~~ | — | **REFUTED 2026-09-06.** `pnpm shootout`: 120b and 20b score IDENTICALLY, fixture for fixture. 20b is not the weak link and its `verifiedTaskClasses` stands. No routing change. | ⊗ |
 | V1-T21 | **The production extraction pool is TWO models, both on Groq** | — | A second provider verified for `extract`, or an accepted, written concentration risk | ☐ |
 | V1-T22 | Facts a CHARACTER asserts about themselves are no longer extracted | T19 | A decision on whether generated text may become canon, then a separate call if yes | ☐ |
 | V1-T23 | Conversational context is gone from extraction | T19 | "Yes, I promise" — whose subject sits in the character's previous question — is captured, measured before it is shipped | ☐ |
 | V1-T24 | **The scheduler reads an UNDECLARED capability as "verified for everything"** | — | Absence means NOT verified, fail-closed, enforced in contract + scheduler + test | ☑ **ADR-031** |
-| V1-T25 | Contamination guard over every evaluation fixture | — | `pnpm check` fails if a test sentence shares >4 consecutive words with any prompt | ☑ |
+| V1-T25 | Contamination guard over every evaluation fixture | — | `pnpm check` fails if a test sentence shares >4 consecutive words with any prompt, and DISCOVERS prompts rather than listing them | ☑ |
+| V1-T26 | Memory kind derived from event type, not hardcoded `episodic` | — | A stated trait decays at 180 days, not 30 | ☑ |
+| V1-T27 | One turn at a time per world (`CONVERSATION_BUSY`) | — | A second concurrent turn is refused; a crashed claim expires | ☑ |
 
 **Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
 written. If the loop does not feel alive, that is the ONLY signal ADR-028
@@ -137,6 +139,59 @@ Two things the shootout separates that the gate could not:
   one thing the shootout holds constant that the product does not is the
   character's reply: pinned here, generated at temperature 0.85 there. That is
   now the only surviving hypothesis, and `pnpm replynoise` tests it paired.
+
+### V1-T19 RESOLVED — the decision ORDER was the bug (extract-events v1.2)
+
+Three defects in the prompt, all structural rather than wording, and the first
+is the one that mattered.
+
+**The taxonomy could VETO capture.** v1.1 said `TYPE — choose exactly one. If
+nothing fits, do not emit an event`, so a fact the model could not confidently
+TYPE was discarded. Recall was bounded by classification confidence rather than
+by whether the fact mattered — and "I cannot swim" is obviously worth keeping
+and genuinely awkward to file. v1.2 asks the two questions in the other order
+and makes the second total: decide whether it is worth keeping, THEN pick the
+closest type, with a named fallback so nothing is dropped for being hard to
+file. This is the two-stage decomposition the literature recommends for exactly
+this failure — atomic propositions benefit weaker extractors by improving recall
+— done inside ONE call by fixing the order of the decisions rather than by
+adding a second request.
+
+**The framing forbade a third of the ontology.** v1.1 opened with "An event is
+something that HAPPENED... Do not record a state you inferred" and then listed
+`preference_stated`, `relation_stated` and `numeric_stated`, which are by
+definition standing states. The `_stated` suffix resolves it — the happening is
+the SAYING — and v1.1 never said so, so the most emphatic instruction in the
+prompt argued against a third of the type list.
+
+**The one good test was scoped to perception.** "Whether a reader would need to
+know it later" sat inside the paragraph about beacons and hearths. It is now the
+general rule, stated once, at the top.
+
+MEASURED, 28 held-out sentences, both arms interleaved against one pinned model
+(`pnpm extract:study`):
+
+    v1.1   capture 13/19   68%   false positives 1/5   unmeasured 4
+    v1.2   capture 19/19  100%   false positives 0/6   unmeasured 3
+
+Same denominator on positives. **Precision did not degrade — it improved**,
+which was the risk with a change that deliberately loosens capture. Every
+measured flip went one way: T06 fulfilled, S03 condition, S05 past occupation
+and S08 fear all went MISS -> kept.
+
+At the product level, on the gate's own held-out sentence with an uncontaminated
+prompt: **extraction 10/10, full gate 9/10** — from 1/10 and 3/10.
+
+The default stays v1 so historical benchmarks keep meaning what they meant;
+`turn.ts` names v1.2 explicitly, where grep finds it.
+
+### The guard had the same hole it was built to close
+
+v1.2 shipped to the product while `contamination.test.ts` rendered only v1 and
+v2 — the one prompt that actually ran was the one prompt not checked. A
+hand-maintained list of things to protect fails open exactly like an undeclared
+capability (ADR-031). It now DISCOVERS every `renderExtractEvents*` export, so a
+new prompt is covered the moment it exists.
 
 ### I contaminated my own benchmark, and the honest number is 1/10
 

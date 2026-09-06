@@ -5,7 +5,11 @@ import {
   type ProposedEvent,
   type WorldEvent,
 } from "@darkforest/contracts";
-import { renderExtractEventsPrompt, renderExtractEventsV2Prompt } from "@darkforest/prompts";
+import {
+  renderExtractEventsPrompt,
+  renderExtractEventsV1_2Prompt,
+  renderExtractEventsV2Prompt,
+} from "@darkforest/prompts";
 import { normaliseKey } from "@darkforest/core";
 
 /**
@@ -30,7 +34,7 @@ export interface EventExtractionInput {
    * Which selection prompt to use. Defaults to v1 so no existing caller
    * changes behaviour; the A/B passes both to compare them on one workload.
    */
-  promptVariant?: "v1" | "v2";
+  promptVariant?: "v1" | "v1.2" | "v2";
 }
 
 export interface EventRejection {
@@ -178,7 +182,11 @@ export async function extractEvents(
   input: EventExtractionInput,
 ): Promise<EventExtractionOutcome> {
   const render =
-    input.promptVariant === "v2" ? renderExtractEventsV2Prompt : renderExtractEventsPrompt;
+    input.promptVariant === "v2"
+      ? renderExtractEventsV2Prompt
+      : input.promptVariant === "v1.2"
+        ? renderExtractEventsV1_2Prompt
+        : renderExtractEventsPrompt;
   const prompt = render({
     transcript: input.transcript,
     worldDay: input.worldDay,

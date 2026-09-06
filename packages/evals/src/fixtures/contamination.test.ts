@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  renderExtractEventsPrompt,
-  renderExtractEventsV2Prompt,
-} from "@darkforest/prompts";
+import * as prompts from "@darkforest/prompts";
 import {
   HELD_OUT_SENTENCES,
   INTENTIONAL_CONTROLS,
@@ -49,7 +46,17 @@ import {
  */
 const MAX_SHARED_WORDS = 4;
 
-/** Every prompt on the extraction path, rendered as the model receives it. */
+/**
+ * Every extraction prompt the package exports, DISCOVERED rather than listed.
+ *
+ * The first version named v1 and v2 by hand. v1.2 was then written, shipped to
+ * the product, and was invisible to this guard — the one prompt that actually
+ * runs was the one prompt not being checked. A hand-maintained list of the
+ * things to protect fails open exactly like an undeclared capability does
+ * (ADR-031), and for the same reason: it protects what someone remembered.
+ *
+ * Reading the exports means a new prompt is covered the moment it exists.
+ */
 function renderedExtractionPrompts(): Array<{ name: string; text: string }> {
   const input = {
     transcript: [{ speaker: "the user", content: "placeholder" }],
@@ -57,22 +64,25 @@ function renderedExtractionPrompts(): Array<{ name: string; text: string }> {
     knownEntities: [{ ref: "narrator", name: "the user" }],
     aggressiveness: 0.5,
   };
-  const v1 = renderExtractEventsPrompt(input);
-  const v2 = renderExtractEventsV2Prompt(input);
-  return [
-    { name: "extract-events.v1 system", text: v1.system },
-    { name: "extract-events.v1 user", text: v1.user },
-    { name: "extract-events.v2 system", text: v2.system },
-    { name: "extract-events.v2 user", text: v2.user },
-  ];
+
+  type Renderer = (i: typeof input) => { system: string; user: string };
+  const out: Array<{ name: string; text: string }> = [];
+
+  for (const [exportName, value] of Object.entries(prompts)) {
+    if (!/^renderExtractEvents/.test(exportName) || typeof value !== "function") continue;
+    const rendered = (value as Renderer)(input);
+    out.push({ name: `${exportName} system`, text: rendered.system });
+    out.push({ name: `${exportName} user`, text: rendered.user });
+  }
+  return out;
 }
 
 describe("no held-out test sentence appears in any extraction prompt", () => {
-  const prompts = renderedExtractionPrompts();
+  const renderedPrompts = renderedExtractionPrompts();
 
   for (const fixture of HELD_OUT_SENTENCES) {
     it(`${fixture.usedBy}: "${fixture.text.slice(0, 44)}…"`, () => {
-      for (const prompt of prompts) {
+      for (const prompt of renderedPrompts) {
         const shared = longestSharedRun(fixture.text, prompt.text);
         expect(
           shared,
@@ -88,11 +98,23 @@ describe("no held-out test sentence appears in any extraction prompt", () => {
     });
   }
 
-  it("checks something — the fixture list is not empty", () => {
+  it("checks something — the fixture list and the prompt list are both real", () => {
     // A guard over an empty list passes forever and protects nothing.
     expect(HELD_OUT_SENTENCES.length).toBeGreaterThan(8);
-    expect(prompts.length).toBeGreaterThan(0);
-    for (const p of prompts) expect(p.text.length).toBeGreaterThan(200);
+    for (const p of renderedPrompts) expect(p.text.length, p.name).toBeGreaterThan(200);
+  });
+
+  it("discovers EVERY extraction prompt, including the one the product uses", () => {
+    /*
+     * The gap this closes: v1.2 shipped to the product while the guard checked
+     * only v1 and v2, so the single prompt that actually ran was the one not
+     * being checked. Naming the versions here would rebuild the hand-maintained
+     * list that failed; instead this asserts that discovery found more than the
+     * two originals and that the product's version is among them.
+     */
+    const names = renderedPrompts.map((p) => p.name);
+    expect(names.some((n) => n.includes("V1_2"))).toBe(true);
+    expect(new Set(names.map((n) => n.split(" ")[0])).size).toBeGreaterThanOrEqual(3);
   });
 
   it("would actually catch a leak — the detector, tested against itself", () => {
@@ -133,7 +155,7 @@ describe("no held-out test sentence appears in any extraction prompt", () => {
      * guard like this is just a hole waiting for someone in a hurry.
      */
     for (const control of INTENTIONAL_CONTROLS) {
-      for (const p of prompts) {
+      for (const p of renderedPrompts) {
         expect(
           longestSharedRun(control, p.text),
           `${control} now overlaps ${p.name}. There is no exemption list: change ` +

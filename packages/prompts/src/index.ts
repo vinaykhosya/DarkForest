@@ -54,6 +54,11 @@ export {
 } from "./extract-events.v1.js";
 
 export {
+  renderExtractEventsV1_2Prompt,
+  EXTRACT_EVENTS_V1_2_PROMPT_VERSION,
+} from "./extract-events.v1_2.js";
+
+export {
   renderExtractEventsV2Prompt,
   EXTRACT_EVENTS_V2_VERSION,
   type ExtractEventsV2Input,

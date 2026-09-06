@@ -29,6 +29,7 @@
     "agency": "tsx packages/evals/src/agency-experiment.ts",
     "expression:suite": "tsx packages/evals/src/expression-suite.ts",
     "replynoise": "tsx packages/evals/src/reply-noise.ts",
+    "extract:study": "tsx packages/evals/src/extraction-study.ts",
     "shootout": "tsx packages/evals/src/extractor-shootout.ts",
     "gap:probe": "tsx packages/evals/src/gap-probe.ts",
     "audience:probe": "tsx packages/evals/src/audience-probe.ts",

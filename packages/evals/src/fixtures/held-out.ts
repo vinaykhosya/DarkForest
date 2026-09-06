@@ -25,6 +25,8 @@
  * only protects what it can see.
  */
 
+import { STUDY_CASES } from "./extraction-study.js";
+
 export interface HeldOutSentence {
   /** Where it is used, so a failure names the file to change. */
   usedBy: string;
@@ -51,6 +53,14 @@ export const HELD_OUT_SENTENCES: readonly HeldOutSentence[] = [
   { usedBy: "shootout F4", text: "I don't see well in the dark. Never have." },
   { usedBy: "shootout F5", text: "My name is Cass. Everyone here has been calling me the traveller." },
   { usedBy: "shootout N1", text: "Morning. Cold one today, isn't it?" },
+
+  /*
+   * The extraction study (fixtures/extraction-study.ts), spread in whole rather
+   * than listed twice. A fixture the guard cannot see is a fixture it cannot
+   * protect, and hand-copying twenty-eight sentences into a second list is a
+   * transcription error waiting to happen.
+   */
+  ...STUDY_CASES.map((c) => ({ usedBy: `study ${c.id} (${c.shape})`, text: c.text })),
 ];
 
 /**
