@@ -136,10 +136,24 @@ async function main(): Promise<void> {
     sleep,
   });
 
-  // A different model judges than speaks. A model grading its own output is
-  // measuring its own taste.
-  const judge =
-    groq.models.find((m) => m.id.includes("gpt-oss-120b")) ?? groq.models[0]!;
+  /*
+   * TWO judges must AGREE, and disagreement is recorded as UNMEASURED.
+   *
+   * v1 ran one judge and scored whatever came back. It gave E-D 1/3 on verdicts
+   * that contradicted each other across near-identical replies, and E-F 0/3 on a
+   * single verdict because the other two were unparseable. A coin flip printed
+   * as a score is worse than an admitted gap: it looks like a finding, and the
+   * next decision gets made on it.
+   *
+   * The two judges are different sizes rather than different families, because
+   * gpt-oss is what is verified for `classify` here — qwen fails JSON. A large
+   * and a small model agreeing is a weaker claim than two independent families
+   * agreeing, and it is the strongest claim the verified set supports.
+   *
+   * Neither model ever sees which way we hoped the verdict would go.
+   */
+  const judges = groq.models.filter((m) => m.id.includes("gpt-oss"));
+  if (judges.length < 2) throw new Error("expression suite needs two judges");
   const REPS = Number(process.env["EXPR_SUITE_REPS"] ?? "3");
 
   console.log("\n" + "=".repeat(78));
@@ -147,13 +161,19 @@ async function main(): Promise<void> {
   console.log("=".repeat(78));
   console.log(
     `  ${String(EXPRESSION_CASES.length)} cases x ${String(REPS)} reps, judged by ` +
-      `${judge.id.split("/").pop() ?? ""}\n  context supplied directly, so this measures expression alone\n`,
+      `${judges.map((j) => j.id.split("/").pop() ?? "").join(" + ")}\n` +
+      `  a case counts only where both judges agree\n` +
+      `  context supplied directly, so this measures expression alone\n`,
   );
 
   interface Row {
     id: string;
     kind: string;
     passes: number;
+    /** Reps where both judges returned a verdict AND agreed. The real denominator. */
+    judged: number;
+    /** Reps where they split, or one never answered. Reported, never scored. */
+    unmeasured: number;
     reps: number;
     inverted: boolean;
     replies: string[];
@@ -166,6 +186,8 @@ async function main(): Promise<void> {
       id: c.id,
       kind: c.kind,
       passes: 0,
+      judged: 0,
+      unmeasured: 0,
       reps: REPS,
       inverted: c.inverted === true,
       replies: [],
@@ -190,71 +212,116 @@ async function main(): Promise<void> {
         const reply = spoken.text.trim();
         row.replies.push(reply);
         if (reply.length === 0) {
+          // No reply is nothing to judge. It is not the character failing to use
+          // a memory, so it does not belong in the denominator either.
+          row.unmeasured += 1;
           process.stdout.write("_");
           row.whys.push("empty reply");
           continue;
         }
-        await sleep(DELAY);
+
         const jp = judgePrompt(c, reply);
-        const verdictText = await router.generate(
-          {
-            taskClass: "classify",
-            system: jp.system,
-            messages: [{ role: "user", content: jp.user }],
-            maxTokens: 220,
-            temperature: 0,
-            timeoutMs: 30_000,
-            meta: { requestId: `judge-${c.id}-${String(rep)}` },
-          },
-          judge,
-        );
-        const v = parseVerdict(verdictText.text);
-        if (v === null) {
+        const verdicts: Array<{ verdict: boolean; why: string }> = [];
+        for (const j of judges) {
+          // One retry per judge. An unparseable verdict is a lost measurement,
+          // and v1 lost two of three that way on the case it then scored 0/3.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            await sleep(DELAY);
+            const out = await router.generate(
+              {
+                taskClass: "classify",
+                system: jp.system,
+                messages: [{ role: "user", content: jp.user }],
+                maxTokens: 300,
+                temperature: 0,
+                timeoutMs: 30_000,
+                meta: { requestId: `judge-${c.id}-${String(rep)}-${String(attempt)}` },
+              },
+              j,
+            );
+            const parsed = parseVerdict(out.text);
+            if (parsed !== null) {
+              verdicts.push(parsed);
+              break;
+            }
+          }
+        }
+
+        const first = verdicts[0];
+        if (verdicts.length < judges.length || first === undefined) {
+          row.unmeasured += 1;
           process.stdout.write("?");
-          row.whys.push("judge unparseable");
+          row.whys.push("a judge returned nothing parseable twice");
           continue;
         }
-        if (v.verdict) row.passes += 1;
-        row.whys.push(v.why);
-        process.stdout.write(v.verdict ? "+" : "!");
+        if (!verdicts.every((v) => v.verdict === first.verdict)) {
+          // Not a pass and not a failure. Saying so is the entire point.
+          row.unmeasured += 1;
+          process.stdout.write("~");
+          row.whys.push(`SPLIT: ${verdicts.map((v) => v.why).join(" / ")}`);
+          continue;
+        }
+        row.judged += 1;
+        if (first.verdict) row.passes += 1;
+        row.whys.push(first.why);
+        process.stdout.write(first.verdict ? "+" : "!");
       } catch {
+        row.unmeasured += 1;
         process.stdout.write("x");
         row.whys.push("call failed");
       }
     }
-    console.log(`  ${String(row.passes)}/${String(REPS)}`);
+    console.log(
+      `  ${String(row.passes)}/${String(row.judged)}` +
+        (row.unmeasured > 0 ? `  (${String(row.unmeasured)} unmeasured)` : ""),
+    );
     rows.push(row);
   }
 
   console.log("\n" + "-".repeat(78));
   console.log("BY CASE");
   for (const r of rows) {
-    const mark = r.passes === r.reps ? " " : r.passes === 0 ? "X" : "~";
+    // "?" is its own mark. A case nobody could judge must not read as a pass or
+    // a failure at a glance, which is exactly how v1's E-F came to read as 0/3.
+    const mark =
+      r.judged === 0 ? "?" : r.passes === r.judged ? " " : r.passes === 0 ? "X" : "~";
     console.log(
-      `  ${mark} ${r.id.padEnd(18)} ${r.kind.padEnd(22)} ${String(r.passes)}/${String(r.reps)}` +
+      `  ${mark} ${r.id.padEnd(18)} ${r.kind.padEnd(22)} ` +
+        `${String(r.passes)}/${String(r.judged)} judged` +
+        (r.unmeasured > 0 ? `, ${String(r.unmeasured)} unmeasured` : "") +
         (r.inverted ? "   (pass = did NOT raise it)" : ""),
     );
     const sample = r.replies.find((x) => x.length > 0);
     if (sample !== undefined) console.log(`      reply: ${JSON.stringify(sample.slice(0, 90))}`);
-    if (r.passes < r.reps) console.log(`      judge: ${r.whys.filter((w) => w).join(" | ").slice(0, 110)}`);
+    if (r.passes < r.judged || r.unmeasured > 0) {
+      console.log(`      judge: ${r.whys.filter((w) => w).join(" | ").slice(0, 140)}`);
+    }
   }
 
-  const total = rows.reduce((a, r) => a + r.reps, 0);
+  const total = rows.reduce((a, r) => a + r.judged, 0);
   const passed = rows.reduce((a, r) => a + r.passes, 0);
+  const unmeasured = rows.reduce((a, r) => a + r.unmeasured, 0);
   const restraint = rows.filter((r) => r.inverted);
   const restraintOk = restraint.reduce((a, r) => a + r.passes, 0);
-  const restraintTotal = restraint.reduce((a, r) => a + r.reps, 0);
+  const restraintTotal = restraint.reduce((a, r) => a + r.judged, 0);
 
   console.log("\n" + "=".repeat(78));
   console.log(
-    `  UTILISATION  ${String(passed)}/${String(total)} (${((passed / total) * 100).toFixed(0)}%)`,
+    `  UTILISATION  ${String(passed)}/${String(total)}` +
+      (total === 0 ? "" : ` (${((passed / total) * 100).toFixed(0)}%)`) +
+      "   over reps both judges agreed on",
   );
   console.log(
     `  RESTRAINT    ${String(restraintOk)}/${String(restraintTotal)} — kept quiet when nobody asked`,
   );
   console.log(
+    `  UNMEASURED   ${String(unmeasured)} of ${String(rows.length * REPS)} — split or no verdict. ` +
+      "Neither a pass nor a failure.",
+  );
+  console.log(
     "\n  Read these together. Utilisation alone rewards a character that recites\n" +
-      "  everything it knows, and restraint alone rewards one that says nothing.",
+      "  everything it knows, and restraint alone rewards one that says nothing.\n" +
+      "  A case marked ? was not measured — do not read it as a failing category.",
   );
   console.log("=".repeat(78) + "\n");
 

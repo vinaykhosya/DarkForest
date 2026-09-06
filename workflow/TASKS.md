@@ -13,6 +13,59 @@
 
 ---
 
+## V0.1 — the vertical slice (CURRENT · ADR-029)
+
+**The whole of it, in one sentence:** a stranger creates Elena, tells her
+something meaningful, closes the browser, comes back tomorrow, and Elena
+naturally remembers it.
+
+That sentence is the gate. Not a percentage — nothing here is judged by a
+benchmark, because every benchmark worth running on the memory foundation has
+already been run and ADR-028 froze the result.
+
+**The constraint that makes this safe.** Slice the PRODUCT, not the
+ARCHITECTURE. The schema is the frozen architecture from the first migration:
+
+    turns  →  events  →  projections  →  memory index
+
+and never `chat_messages → LLM → memory JSON blob`. V0.1 persists an event's
+audience even though one character cannot leak to anyone, and folds projections
+even though a single world barely needs them. Both look like overhead at one
+character and are the reason the tenth character costs nothing. A slice that
+skips FEATURES is recoverable; a slice that skips the architecture is a rewrite
+wearing a deadline.
+
+**What V0.1 deliberately does NOT have:** world engine, relationship engine,
+multi-character orchestration, quests, Telegram, billing, moderation beyond the
+hard safety line, memory notebook, mobile. Each is a later V, not a cut.
+
+| ID | Task | Depends | Acceptance | Status |
+|---|---|---|---|---|
+| V1-T01 | Migration runner + `0001_extensions` | — | `pnpm db:migrate` runs clean from empty, twice | ☐ |
+| V1-T02 | `0002_identity` — profiles bound to `auth.users` | T01 | A signed-up user has exactly one profile row | ☐ |
+| V1-T03 | `0003_worlds_characters` | T02 | One world, one character, owner FK enforced | ☐ |
+| V1-T04 | `0004_turns` — the raw transcript, append-only | T03 | Ordered by `(world_id, seq)`; no update or delete path | ☐ |
+| V1-T05 | `0005_events` — immutable, with audience | T04 | Every field of `WorldEventSchema` round-trips; `seq` gapless per world | ☐ |
+| V1-T06 | `0006_projections` — derived, rebuildable cache | T05 | Dropping and refolding every row reproduces it exactly | ☐ |
+| V1-T07 | `0007_memory_index` — memories + knowledge + pgvector | T05 | `MemoryStore` interface satisfied by SQL, isolation IN the query | ☐ |
+| V1-T08 | `0008_rls` — every public table, fail-closed | T07 | CI check returns zero tables without RLS | ☐ |
+| V1-T09 | RLS negative tests | T08 | User B cannot read or write ANY of user A's rows, per table | ☐ |
+| V1-T10 | `PostgresMemoryStore` | T07 | Passes the same suite `InMemoryMemoryStore` passes, unmodified | ☐ |
+| V1-T11 | Event repo + projection fold on write | T06 | A turn's events land, projections update, both in one transaction | ☐ |
+| V1-T12 | Hono API skeleton + typed error envelope | T02 | Health check; every route returns the docs/10 § 2 envelope | ☐ |
+| V1-T13 | Auth: sign-up, sign-in, session (D-003) | T12 | A session survives a browser restart | ☐ |
+| V1-T14 | `POST /worlds`, `POST /characters` | T13 | A stranger creates a world and Elena, owned by them | ☐ |
+| V1-T15 | `POST /turns` — the whole loop, end to end | T11, T14 | Reply generated, turn stored, events extracted, memory indexed | ☐ |
+| V1-T16 | Web: sign-in, create, chat, return | T15 | Usable by someone who has never seen the repo | ☐ |
+| V1-T17 | **The return visit** | T16 | Close the browser, come back, Elena remembers unprompted | ☐ |
+| V1-T18 | Consumer session log — play it as a user, not as its author | T17 | A written account of what felt alive and what felt mechanical | ☐ |
+
+**Gate:** V1-T17 passes for a person who did not build it, and V1-T18 is
+written. If the loop does not feel alive, that is the ONLY signal ADR-028
+accepts as grounds to reopen the memory architecture.
+
+---
+
 ## Phase 0 — Architecture & Specification
 
 | ID | Task | Depends | Acceptance | Status |
@@ -372,8 +425,9 @@ use rather than by another fixture.
 | ID | Task | Note |
 |---|---|---|
 | M2-T01 | Context construction — what to put in front of the character, and what to leave out | Intrusion and recall are coupled: isolation now fails closed, so a character with little to draw on uses whatever they have. Report them together. |
-| M2-T02 | Response generation — turning known facts into speech that sounds remembered rather than retrieved | |
+| M2-T02 | Response generation — turning known facts into speech that sounds remembered rather than retrieved | **Long-horizon callback is the evidenced gap.** E-F scores 1/3 with BOTH judges agreeing on the two failures, same reason each time: the character holds "cannot swim" and answers about the crossing without it. Retrieval is not implicated — the fact is handed to the model directly. |
 | M2-T03 | Consumer Memory Test — long sessions, natural questions, judged answers | The test the Gauntlet cannot be. Belongs after the product exists. |
+| M2-T04 | **Relational tone is currently unmeasurable — fix the rubric, not the character** | Two judges read the SAME reply as "not guarded, just factual" and "cool, short, guarded". E-D's old 1/3 was a coin flip presented as a score. Either write a rubric two readers apply identically, or drop the category and stop reporting a number for it. Do NOT tune generation against it meanwhile. |
 
 ## Launch checklist — rotate everything once, together
 

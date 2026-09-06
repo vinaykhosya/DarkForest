@@ -972,16 +972,59 @@ signal that qualifies.
 
 ---
 
+### ADR-030 - Supabase Auth, and the API connects as the USER, not as the service role
+**2026-09-06 . Accepted . Resolves D-003 . Constrains V1-T08, V1-T12, V1-T13**
+
+**Context.** V0.1 needs accounts, and D-003 was left open with a leaning toward
+Supabase Auth "decided then with real usage in view". V0.1 is that view.
+
+**Decision.** Supabase Auth. The alternative - our own sessions on top of the
+database - loses on one specific point rather than on convenience.
+
+**The point it loses on.** `docs/03 § 11` requires RLS on every public table and
+CLAUDE.md § 5 makes it a hard rule. An RLS policy needs to know who is asking,
+and the only in-database answer to that is `auth.uid()`. Rolling our own sessions
+means either writing every ownership check in application code - which is the
+same mistake as filtering knowledge in application code, one forgotten `WHERE`
+away from serving another user's world - or building a custom claims mechanism
+to feed `auth.uid()`'s equivalent, correctly, on every connection. That is
+security-critical plumbing with no product value, replacing something free that
+already exists.
+
+**THE HALF THAT IS EASY TO GET WRONG.** Choosing Supabase Auth is not what makes
+RLS work. What makes it work is that the API opens its connection as an
+authenticated role carrying the caller's JWT claims - `set_config('request.jwt.claims', ...)`
+inside the request transaction - and NOT as `service_role`. A `service_role`
+connection bypasses every policy silently. The policies still exist, the CI check
+still passes, the negative tests still pass if they test the database directly,
+and in production not one policy ever runs. RLS that is bypassed in the hot path
+is not a backstop; it is a comment.
+
+So: `SUPABASE_SERVICE_ROLE_KEY` is for migrations and for background jobs that
+genuinely act as the system, and each such use is named. Anything serving a user
+request runs as that user. V1-T09's negative tests must exercise the API path,
+not only raw SQL, or they prove the wrong thing.
+
+**Cost, accepted.** Identity is now coupled to Supabase. Bounded deliberately:
+our own `profiles` table owns the application-side user id and every foreign key
+points at it, so leaving Supabase means reissuing credentials, not remapping the
+schema. And per `docs/12 § 3` the service layer authorizes regardless, because
+bot channels bypass auth entirely - so authorization was never allowed to live in
+the auth provider in the first place.
+
+**Revisit.** If bot channels become the primary entry point, or if we leave
+Supabase's Postgres, this is a cheap decision to redo. It is deliberately not
+load-bearing.
+
+---
+
 ## Open — must be decided before their phase
 
 ### ~~D-001 — Backend runtime~~ → **Resolved by ADR-010** (Hono, deploy to Workers, stay portable)
 
 ### ~~D-002 — Embedding provider~~ → **Resolved by ADR-009** (Cloudflare Workers AI `bge-base-en-v1.5`, 768-dim)
 
-### D-003 — Auth provider
-**Blocks P5-T02**
-
-Supabase Auth is the default (free, integrates with RLS). Alternative: our own sessions on top of the database. *Leaning:* Supabase Auth — but note that bot channels bypass it entirely ([12](../docs/12-security.md) § 3), so the service layer must authorize regardless. **Not blocking until Phase 5; decide then with real usage in view.**
+### ~~D-003 — Auth provider~~ → **Resolved by ADR-030** (Supabase Auth; the API connects as the user, never as `service_role`)
 
 ### D-004 — Mature content
 **Blocks nothing before Phase 13 · Do not decide early**

@@ -9,41 +9,116 @@
 
 | | |
 |---|---|
-| **Phase** | 1 — AI Lab & Evaluation Harness |
-| **Phase status** | **Loop works end to end.** Gate not yet assessable — needs a real model. |
-| **Next task** | **P1-T13** eval harness runner, then T14/T15 (suites 1 and 3) |
-| **Blocked on** | **API keys: `GROQ_API_KEY`, `CF_ACCOUNT_ID` + `CF_API_TOKEN`** → blocks P1-T02, T05, T07 **and the Phase 1 gate** |
-| **Code** | 130 tests · typecheck green · lint green · `pnpm lab` runs offline and free |
+| **Phase** | **V0.1 — the vertical slice** (ADR-029 reorders Phases 2–9) |
+| **Phase status** | Memory Foundation v1 **FROZEN** (ADR-028). Persistence starting from zero — there are no migrations yet and every world tested so far lived in `InMemoryMemoryStore`. |
+| **Next task** | **V1-T01** migration runner, then 0001–0008 and `PostgresMemoryStore` |
+| **Blocked on** | Nothing. Supabase is provisioned; D-003 resolved by ADR-030. |
+| **Code** | 315 tests · typecheck green · lint green · secret scan in `pnpm check` |
 | **Money spent** | ₹0 |
 
-### Lab results (mock provider, lexical embeddings)
+### Where the memory foundation actually stands
 
-| World | recall@k | answer accuracy | memories | model calls |
-|---|---|---|---|---|
-| Ravenhold | **3/3 (100%)** | 1/3 | 7 | 17 |
-| The Kapoor House | 2/3 (67%) | 1/3 | 4 | 26 |
-| Mars Colony 2147 | 2/3 (67%) | 1/3 | 4 | 18 |
-| The Ashford Inquiry | 1/2 (50%) | 1/2 | 2 | 16 |
+Measured over 3 repetitions with nothing changed between them, on two worlds:
 
-**These numbers do NOT constitute the Phase 1 gate.** The mock embedder is lexical
-only — no synonymy, no paraphrase. They are a lower bound on *pipeline*
-correctness, and the gate explicitly requires a real embedding provider.
+| | | |
+|---|---|---|
+| **KNOWLEDGE** | 57/57 | zero leaks. The hard criterion, and it holds. |
+| **TRUTH** | 48/57 (84%) | the 9 misses are 3 extraction gaps × 3 reps, all logged as M1-T01…04 |
+| **EXPRESSION** | 39/48 (81%) | from 27/48, after one model's reasoning config was fixed |
 
-The sub-100% worlds are worth reading before tuning anything: Ashford's script
-plants facts in dialogue rather than in user statements, so the mock's
-user-lines-only extractor never sees them. That is a fixture-and-mock artefact,
-not a retrieval failure — and a good reminder that a real extractor will need to
-read character lines too.
+**None of these is the V0.1 gate.** V0.1 is judged by one sentence — a stranger
+creates Elena, tells her something, comes back tomorrow, and she remembers —
+because every benchmark worth running on the frozen foundation has been run.
 
 ### The next three things
 
-1. **P1-T13** — eval harness runner, so results are dated JSON rather than console output.
-2. **API keys** — Groq and Cloudflare. The Phase 1 gate cannot be assessed without them.
-3. **P0-T13** — the end-to-end spec contradiction read. Still deferred.
+1. **V1-T01…T08** — the schema, `turns → events → projections → memory index`.
+2. **V1-T10** — `PostgresMemoryStore` passing the in-memory store's own suite.
+3. **V1-T17** — the return visit. The only number that matters now is 1 person.
 
 ---
 
 ## Session log
+
+## 2026-09-06 (latest) — a second judge; V0.1 begins
+
+**Done** — Expression Suite judge hardened · results recorded · D-003 resolved
+(ADR-030) · V0.1 put on the board · V1-T01 migration runner
+
+### The second judge, and what it actually showed
+
+v1 ran ONE judge and scored whatever came back. Two of its six cases were
+therefore not measurements:
+
+- **E-D relational** read 1/3.
+- **E-F long-horizon** read 0/3 — resting on a single verdict, because the
+  other two came back unparseable.
+
+Now two judges must agree, each retries once, and a split or a missing verdict
+is recorded as **unmeasured** rather than scored.
+
+| Case | v1 | now | what changed |
+|---|---|---|---|
+| E-A explicit recall | 3/3 | 3/3 judged | — |
+| E-B contextual | 3/3 | 3/3 judged | — |
+| E-C behavioural | 3/3 | 2/2 judged, 1 unmeasured | a judge failed twice |
+| E-D relational | 1/3 | **1/1 judged, 2 unmeasured** | the judges contradict each other |
+| E-E restraint | 3/3 | 3/3 judged | — |
+| E-F long-horizon | 0/3 | **1/3 judged, 0 unmeasured** | the retry recovered the lost verdicts |
+
+**Read the headline carefully. 13/15 (87%) is NOT an improvement on 13/18 (72%).
+The character did not change — nothing in the product was touched. The
+denominator changed, because the old one counted reps nobody could judge as
+failures.** Quoting 87% as progress would be the fifth measurement bug in a row,
+and this time I would have introduced it while fixing the fourth.
+
+Two findings, in opposite directions:
+
+**E-D was never a failure.** On the same reply — *"The caravan went east. You
+told me north. Six days ago."* — one judge wrote *"Not a guarded, cooler reply;
+just factual statement"* and the other wrote *"Cool, short, guarded, references
+lie."* That is not a character missing a standard, it is a rubric two competent
+readers apply oppositely. Relational tone is currently **unmeasurable** by this
+instrument, and saying so is more useful than 1/3.
+
+**E-F is real, and worse than it looked.** With the retry, all three reps
+produced verdicts and both judges AGREED on all three: 1 pass, 2 failures, both
+*"Ignores user's inability to swim."* v1's 0/3 was untrustworthy; the trustworthy
+number is 1/3. Long-horizon callback is a genuine weakness — a fact from far back
+in a session is held and not used — and it is now the best-evidenced gap in
+expression. Logged against M2-T02.
+
+The suite was hardened, not redesigned, and it was re-run once (18 reps), not
+hundreds of times.
+
+### V0.1 started
+
+- **ADR-030** resolves D-003: Supabase Auth. The reasoning that decided it is not
+  convenience — it is that RLS needs `auth.uid()`, and the alternative is
+  ownership checks in application code, which is the same class of mistake as
+  filtering knowledge in application code.
+- **The half that is easy to get wrong is written down**: the API must connect as
+  the *user* (`set local role authenticated`, claims set LOCAL to the
+  transaction), never as `service_role`. A service-role connection bypasses every
+  policy silently — CI still passes, negative tests against raw SQL still pass,
+  and no policy ever runs in production. `set_config(..., false)` would be worse
+  still: claims persisting on a pooled connection means the next request runs as
+  the previous user.
+- **V1-T01 migration runner**: forward-only, one transaction per migration,
+  checksums on applied files, advisory lock around the run. No `down`
+  migrations — a down migration is written when the schema is understood and run
+  when it is not.
+
+**Learned** — an instrument that cannot express "I don't know" will express it as
+a score, and a score is acted on. Three of the six expression cases were affected
+and one of them (E-D) would have sent us tuning a character that was fine.
+
+**Decided** — ADR-030 (Supabase Auth; connect as the user).
+
+**Next** — V1-T02…T08, the migrations, `turns → events → projections → memory
+index` from the first one.
+
+---
 
 ## 2026-09-06 (later) — final gate: zero leaks, expression 81%
 
