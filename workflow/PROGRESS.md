@@ -10,10 +10,10 @@
 | | |
 |---|---|
 | **Phase** | **V0.1 — the vertical slice** (ADR-029 reorders Phases 2–9) |
-| **Phase status** | **The loop closes.** A stranger is remembered a day later — on 6 of 9 runs. Every failure is the same step, and it is extraction on first mention. |
-| **Next task** | **V1-T19** make first-mention extraction reliable, on evidence, then **V1-T18** play it as a user |
-| **Blocked on** | Nothing. Supabase provisioned, 9 migrations applied, RLS enforced through `asUser`. |
-| **Code** | 328 tests · typecheck green · lint green · `pnpm db:verify` green against Supabase |
+| **Phase status** | **The loop closes, 9 times in 10.** Extraction on first mention is 10/10 on held-out sentences. The bottleneck is gone. |
+| **Next task** | **V1-T18** — play it as a user, not as its author |
+| **Blocked on** | Nothing. Supabase provisioned, 10 migrations applied, all four `db:verify` suites green. |
+| **Code** | 383 tests · typecheck green · lint green · `pnpm db:verify` green against Supabase |
 | **Money spent** | ₹0 |
 
 ### Where the memory foundation actually stands
@@ -32,15 +32,90 @@ because every benchmark worth running on the frozen foundation has been run.
 
 ### The next three things
 
-1. **V1-T19** — the same sentence must be captured on 9 runs in 10, not 6 in 9.
-2. **V1-T18** — play it as a user. The only number that matters now is 1 person.
-3. **V1-T20** — re-verify `gpt-oss-20b` for the widened category, or drop the
-   task class from its `verifiedTaskClasses`. ADR-022: competence is measured,
-   never assumed.
+1. **V1-T18** — play it as a user. The only number that matters now is 1 person.
+2. **V1-T21** — the production extraction pool is two models on one provider.
+   If Groq is out, the conversation still works and the world stops learning.
+3. **V1-T22/T23** — facts a CHARACTER states about itself, and conversational
+   context, are both out of extraction by design. Each needs its own decision.
 
 ---
 
 ## Session log
+
+## 2026-09-07 — the decision order was the bug
+
+**Done** — V1-T19 ☑ · V1-T20 ⊗ refuted · V1-T24 ☑ (ADR-031) · V1-T25/26/27 ☑ ·
+V1-T17 ☑ 9 of 10
+
+### Extraction: 1/10 → 10/10, and none of it was the model
+
+Diagnosis before any change, in order, each step killing a hypothesis:
+
+| Hypothesis | Test | Verdict |
+|---|---|---|
+| The 20B model is weak | Pin each eligible model, hold input constant | **Refuted** — identical, fixture for fixture |
+| The character's reply interferes | Paired, same reply in both arms | **Confirmed** — 8/8 alone vs 4/8 with it |
+| The prompt is the problem | Read it | **Confirmed** — three structural defects |
+
+**The taxonomy could VETO capture.** `TYPE — choose exactly one. If nothing
+fits, do not emit an event.` A fact the model could not confidently *type* was
+discarded, so recall was bounded by classification confidence rather than by
+whether the fact mattered. v1.2 reverses the order — decide *worth keeping*,
+then decide *how to file* — and makes the second step total with a named
+fallback. That is the two-stage decomposition the literature recommends for
+this failure, done inside one call by fixing the decision order rather than by
+adding a second request.
+
+**The framing forbade a third of the ontology.** "An event is something that
+HAPPENED... Do not record a state you inferred" sat directly above
+`preference_stated`, which is by definition a standing state. The `_stated`
+suffix resolves it — the happening is the *saying* — and the prompt never said
+so.
+
+**The one good test was scoped to perception.** "Whether a reader would need to
+know it later" is the best rule in the prompt and applied to one type.
+
+    v1.1   capture 13/19   68%   false positives 1/5
+    v1.2   capture 19/19  100%   false positives 0/6
+
+Precision improved rather than degrading, which was the risk. At the product
+level: **extraction 10/10, gate 9/10.**
+
+### Three write-path defects, one invisible to every test
+
+**Memory kind was hardcoded `episodic`,** so the memory engine's per-kind decay
+was discarded at the write boundary. A stated trait — true for as long as the
+person exists — decayed with a 30-day half-life instead of 180. The acceptance
+gate advances the clock by ONE day, where the two differ by under 2%, so no test
+we had could ever have seen it. It would have surfaced only as the thing the
+product exists to prevent: remembered tomorrow, forgotten by the spring.
+
+**Two turns in a world could interleave.** `CONVERSATION_BUSY` has been in
+docs/10 § 3 since Phase 0 and was never emitted. Two browser tabs was enough to
+corrupt the transcript every projection folds from.
+
+**Smaller:** a too-short memory was skipped silently; truncation cut mid-word in
+a string that goes into the prompt; `subjects` was never populated so a scored
+term contributed nothing; the web client guessed whether a failed turn had been
+stored instead of asking the transcript.
+
+### Two guards that had the hole they were built to close
+
+`verifiedTaskClasses === undefined` meant "verified for everything", so
+`openrouter/free` took memory extraction having never been measured for it
+(ADR-031). And `contamination.test.ts` rendered v1 and v2 by hand — so v1.2, the
+prompt the product actually uses, was the one prompt it never checked. Both now
+fail closed: the contract requires the declaration, and the guard discovers
+prompts instead of listing them.
+
+**Learned** — every defect this session was a fail-open default or a
+hand-maintained list. Not one was a wrong algorithm. The pattern is specific
+enough to check for directly: *what does this do when nobody remembered to tell
+it anything?*
+
+**Next** — V1-T18. Play it as a user.
+
+---
 
 ## 2026-09-06 (V0.1) — the loop closes, two times in three
 

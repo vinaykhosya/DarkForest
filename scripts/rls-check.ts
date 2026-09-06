@@ -81,8 +81,22 @@ async function seed(pool: DbPool, label: string): Promise<Fixture> {
          values ($1, 1, 0, 'revealed', 'the user', $2, $3, 0)`,
         [worldId, `${label}'s secret`, ["the user", "Elena"]],
       );
+      /*
+       * `kind` and `visibility` are BOTH stated, and both are load-bearing.
+       *
+       * This fixture originally said `kind: 'secret'` with no visibility, which
+       * was the pre-0008 vocabulary and a column that still had a default. That
+       * migration corrected the enum to match `MemoryKindSchema` and removed the
+       * default deliberately, and this line was not re-run — so the RLS suite
+       * began failing on its own fixture rather than on anything it tests.
+       *
+       * The lesson is the one the migration itself argues: a silent default is
+       * worse than a required column, because the insert that omits it means one
+       * thing to the schema and another to whoever wrote it.
+       */
       await c.query(
-        `insert into memories (id, world_id, kind, content) values ($1, $2, 'secret', $3)`,
+        `insert into memories (id, world_id, kind, content, visibility)
+         values ($1, $2, 'episodic', $3, 'restricted')`,
         [memoryId, worldId, `${label}'s secret memory`],
       );
       await c.query(
