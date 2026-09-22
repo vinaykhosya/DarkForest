@@ -1,75 +1,84 @@
-# Dark Forest
+# 🌲 DarkForest
 
-**An AI platform where users create persistent interactive worlds populated by characters that remember, form relationships, and evolve over time.**
+<p align="center">
+  <img src="assets/feature_graphic.jpg" alt="DarkForest Banner" width="100%" />
+</p>
 
-The chatbot is the interface. The memory system is the intelligence layer. The world engine is the simulation layer. The AI router is the compute layer. The creator ecosystem is the growth layer. The subscription and marketplace system is the business layer.
+<p align="center">
+  <b>A Minimalist Obsidian Home Launcher & Timetable Focus Companion for Android</b><br>
+  <i>Cultivate mindful digital habits, eliminate algorithmic clutter, and reclaim your attention.</i>
+</p>
 
----
-
-## Status
-
-| | |
-|---|---|
-| **Stage** | Phase 0 — Architecture & Specification |
-| **Code written** | None yet (by design — see [Workflow](workflow/WORKFLOW.md)) |
-| **Personal capital committed** | ₹0 |
-| **Current focus** | Locking specifications before writing the first line of product code |
-| **Live progress log** | [workflow/PROGRESS.md](workflow/PROGRESS.md) |
-
----
-
-## How to navigate this repository
-
-This repository is currently a **specification repository**. Code arrives in Phase 1. Everything here exists so that implementation is mechanical rather than improvised.
-
-### Start here, in this order
-
-1. **[docs/00-product-identity.md](docs/00-product-identity.md)** — What Dark Forest is, who it is for, what it refuses to be.
-2. **[docs/01-principles-and-constraints.md](docs/01-principles-and-constraints.md)** — The non-negotiable rules every decision must satisfy.
-3. **[workflow/WORKFLOW.md](workflow/WORKFLOW.md)** — The 20 phases, their gates, and what "done" means for each.
-4. **[workflow/TASKS.md](workflow/TASKS.md)** — The living task board. This is where work actually gets picked up.
-5. **[workflow/PROGRESS.md](workflow/PROGRESS.md)** — Where we are right now, updated at the end of every work session.
-
-### Reference specifications
-
-| Document | Covers |
-|---|---|
-| [02-system-architecture.md](docs/02-system-architecture.md) | Runtime topology, repo layout, request lifecycle, platform limits |
-| [03-data-model.md](docs/03-data-model.md) | Full PostgreSQL schema, RLS policy model, migration strategy |
-| [04-memory-engine.md](docs/04-memory-engine.md) | Extraction, retrieval, ranking, consolidation, knowledge isolation |
-| [05-world-engine.md](docs/05-world-engine.md) | Authoritative state, rules, events, quests, inventory, time |
-| [06-character-and-relationship-engine.md](docs/06-character-and-relationship-engine.md) | Character state, knowledge, relationship dimensions and dynamics |
-| [07-multi-character-orchestration.md](docs/07-multi-character-orchestration.md) | Response planning, turn ordering, knowledge leakage prevention |
-| [08-ai-router.md](docs/08-ai-router.md) | Provider abstraction, model selection, health, fallback, budgets |
-| [09-context-builder-and-prompts.md](docs/09-context-builder-and-prompts.md) | Prompt architecture, token budgeting, injection defense |
-| [10-api-contracts.md](docs/10-api-contracts.md) | HTTP surface, internal message protocol, error taxonomy |
-| [11-channels.md](docs/11-channels.md) | Web, Telegram, WhatsApp adapters and identity linking |
-| [12-security.md](docs/12-security.md) | Threat model, secrets, authz, abuse controls, checklists |
-| [13-moderation-and-policy.md](docs/13-moderation-and-policy.md) | Content policy, moderation pipeline, age strategy, takedowns |
-| [14-billing-and-entitlements.md](docs/14-billing-and-entitlements.md) | Plans, entitlement resolution, compute units, usage ledger |
-| [15-testing-and-evaluation.md](docs/15-testing-and-evaluation.md) | Test pyramid, AI evaluation harness, quality gates |
-| [16-observability-and-ops.md](docs/16-observability-and-ops.md) | Logging, metrics, alerts, runbooks, degradation ladder |
-| [17-monetization-and-unit-economics.md](docs/17-monetization-and-unit-economics.md) | Pricing model, cost model, margin math, financial milestones |
-| [18-launch-checklist.md](docs/18-launch-checklist.md) | Everything that must be true before the public URL goes live |
-| [19-glossary.md](docs/19-glossary.md) | Shared vocabulary — use these terms exactly, in code and in docs |
-| [workflow/DECISIONS.md](workflow/DECISIONS.md) | Architecture decision record. Every reversal gets logged here. |
-
-### Operating rules
-
-**[CLAUDE.md](CLAUDE.md)** defines how any AI agent (or human) is expected to work inside this repository: which document is authoritative, when to stop and ask, what must never be changed without an ADR.
+<p align="center">
+  <a href="https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.0.apk">
+    <img src="https://img.shields.io/badge/Download-Latest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
+  </a>
+  <a href="https://github.com/vinaykhosya/DarkForest/releases">
+    <img src="https://img.shields.io/badge/Release-v1.0.0-blue?style=for-the-badge" alt="Release" />
+  </a>
+  <a href="PRIVACY_POLICY.md">
+    <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-4E8752?style=for-the-badge" alt="Privacy" />
+  </a>
+</p>
 
 ---
 
-## The one-sentence test
+## ⚡ Direct Download & Install
 
-Before any feature is built, it must survive this question:
+> 🚀 **[Click here to Download DarkForest v1.0.0 APK](https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.0.apk)** *(Only 1.89 MB)*
 
-> Does this make it more likely that one person cares deeply about one persistent world?
-
-If the answer is no, it does not belong in the current phase.
+1. Tap the download link above on your Android phone.
+2. When prompted, tap **Install** (allow *"Install unknown apps"* if prompted in your browser).
+3. Open **DarkForest** and set it as your default Home launcher!
 
 ---
 
-## License & ownership
+## 📱 Visual Showcase
 
-Private and unlicensed. All infrastructure currently runs on personal free-tier accounts; migration to company-owned accounts is a hard gate before public launch (see [12-security.md](docs/12-security.md) § Account Ownership Migration).
+<table align="center">
+  <tr>
+    <td align="center"><b>Minimalist Home</b></td>
+    <td align="center"><b>Timetable Planner</b></td>
+    <td align="center"><b>Conscious Friction</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/01_launcher_home.png" width="240" alt="Home" /></td>
+    <td><img src="assets/02_timetable_planner.png" width="240" alt="Timetable" /></td>
+    <td><img src="assets/05_conscious_friction.png" width="240" alt="Conscious Friction" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Routine Editor</b></td>
+    <td align="center"><b>Time-Block Config</b></td>
+    <td align="center"><b>App Icon</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/03_routine_editor.png" width="240" alt="Routine Editor" /></td>
+    <td><img src="assets/04_timeblock_config.png" width="240" alt="Timeblock Config" /></td>
+    <td><img src="assets/app_icon_512.jpg" width="240" alt="App Icon" /></td>
+  </tr>
+</table>
+
+---
+
+## 🌟 Key Features
+
+- **Minimalist Obsidian Home Screen:** Clean monochrome aesthetic that strips away loud badge icons, notification spam, and infinite doom-scroll traps.
+- **Intentional App Dock:** Keep only your 3 essential apps in the bottom dock; search all other apps only when you genuinely intend to use them.
+- **Routine & Timetable Blueprints:** Build daily routines with customized time-blocks for deep work, study, reading, and rest.
+- **Conscious Friction Over Hard Locks:** Rather than frustrating rigid locks that make you uninstall the app, DarkForest presents mindful breathers and conscious pause prompts.
+- **Zero-Network Architecture (100% Private):** DarkForest contains no `INTERNET` permissions. Your schedules, habits, and notes never leave your phone.
+
+---
+
+## 🔒 Privacy & Permissions
+
+DarkForest is built with an absolute privacy-first philosophy:
+- **No Internet Access:** Pure offline execution. No telemetry, no crash tracking servers, no external APIs.
+- **Local Storage:** All timetable and session data is stored exclusively in on-device encrypted Room database.
+- Read our full [Privacy Policy](PRIVACY_POLICY.md).
+
+---
+
+<p align="center">
+  Made with 🌲 for intentional living.
+</p>
