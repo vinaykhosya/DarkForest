@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.0.apk">
-    <img src="https://img.shields.io/badge/Download-Latest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
+  <a href="https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.1.apk">
+    <img src="https://img.shields.io/badge/Download-Latest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
   </a>
-  <a href="https://github.com/vinaykhosya/DarkForest/releases">
-    <img src="https://img.shields.io/badge/Release-v1.0.0-blue?style=for-the-badge" alt="Release" />
+  <a href="https://github.com/vinaykhosya/DarkForest/releases/tag/v1.0.1">
+    <img src="https://img.shields.io/badge/Release-v1.0.1-blue?style=for-the-badge" alt="Release v1.0.1" />
   </a>
   <a href="PRIVACY_POLICY.md">
     <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-4E8752?style=for-the-badge" alt="Privacy" />
@@ -25,7 +25,9 @@
 
 ## ⚡ Direct Download & Install
 
-> 🚀 **[Click here to Download DarkForest v1.0.0 APK](https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.0.apk)** *(Only 1.89 MB)*
+> 🚀 **[Click here to Download DarkForest v1.0.1 APK (Latest)](https://github.com/vinaykhosya/DarkForest/releases/latest/download/DarkForest-v1.0.1.apk)** *(Only 1.82 MB)*
+>
+> 📦 *Alternative direct mirror:* [DarkForest-release.apk](https://github.com/vinaykhosya/DarkForest/releases/download/v1.0.1/DarkForest-release.apk) | [View v1.0.1 Release Notes](https://github.com/vinaykhosya/DarkForest/releases/tag/v1.0.1)
 
 1. Tap the download link above on your Android phone.
 2. When prompted, tap **Install** (allow *"Install unknown apps"* if prompted in your browser).
